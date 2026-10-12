@@ -58,7 +58,7 @@ bool falafel_message_serialize (
     if (message->payload_length > FALAFEL_MAX_PAYLOAD_SIZE) return false;
 
     //check buffer size
-    if (buffer_size < FALAFEL_HEADER_SIZE + message->payload_length) return false;
+    if (buffer_size < (size_t)(FALAFEL_HEADER_SIZE + message->payload_length)) return false;
 
     //serialize the message into the buffer
     size_t offset = 0;
@@ -131,7 +131,7 @@ bool falafel_message_deserialize(
         return false;
 
     // 9. Check exact packet size
-    if (buffer_size != FALAFEL_HEADER_SIZE + temp.payload_length)
+    if (buffer_size != (size_t)(FALAFEL_HEADER_SIZE + temp.payload_length))
         return false;
 
     // 10. Copy payload
