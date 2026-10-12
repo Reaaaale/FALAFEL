@@ -44,7 +44,7 @@ int main (void)
 
     assert(serialize_result == true);
 
-    assert (serialized_size == FALAFEL_HEADER_SIZE + message.payload_length);
+    assert(serialized_size == (size_t)(FALAFEL_HEADER_SIZE + message.payload_length));
 
     // Check ID
     assert(buffer[0] == 0x00);
@@ -80,7 +80,7 @@ int main (void)
 
     printf("Serialized message: ");
     for (size_t i=0; i < serialized_size; ++i) {
-        printf("%02X ", buffer[i]);
+        printf("%02X ", (unsigned int)buffer[i]);
     }
     printf("\n");
 
@@ -111,11 +111,11 @@ assert(memcmp(
 
 // print the deserialized message
 printf("Deserialized message:\n");
-printf("ID: %llu\n", received_message.id);
-printf("Timestamp: %llu\n", received_message.timestamp);
+printf("ID: %" PRIu64 "\n", received_message.id);
+printf("Timestamp: %" PRIu64 "\n", received_message.timestamp);
 printf("Type: %d\n", received_message.type);
 printf("Payload length: %d\n", received_message.payload_length);
-printf("Payload: %.*s\n", received_message.payload_length, received_message.payload);
+printf("Payload: %.*s\n", received_message.payload_length, (const char *)received_message.payload);
 
 
 
