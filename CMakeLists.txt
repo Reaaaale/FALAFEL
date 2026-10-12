@@ -5,6 +5,11 @@ project(falafel_tests C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+option(FALAFEL_ENABLE_SANITIZERS
+    "Enable AddressSanitizer and UndefinedBehaviorSanitizer for host tests"
+    OFF
+)
+
 enable_testing()
 
 add_library(falafel_protocol STATIC
@@ -26,6 +31,45 @@ target_link_libraries(test_protocol PRIVATE
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(falafel_protocol PRIVATE -Wall -Wextra -Werror)
     target_compile_options(test_protocol PRIVATE -Wall -Wextra -Werror)
+endif()
+
+if(FALAFEL_ENABLE_SANITIZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR
+            "FALAFEL_ENABLE_SANITIZERS requires a GCC- or Clang-compatible compiler"
+        )
+    endif()
+
+    include(CheckCSourceCompiles)
+    include(CMakePushCheckState)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_FLAGS
+        "-fsanitize=address,undefined -fno-omit-frame-pointer"
+    )
+    set(CMAKE_REQUIRED_LINK_OPTIONS
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+    )
+    check_c_source_compiles(
+        "int main(void) { return 0; }"
+        FALAFEL_SANITIZER_FLAGS_SUPPORTED
+    )
+    cmake_pop_check_state()
+
+    if(NOT FALAFEL_SANITIZER_FLAGS_SUPPORTED)
+        message(FATAL_ERROR
+            "FALAFEL_ENABLE_SANITIZERS is ON, but the selected compiler does not support the required sanitizer flags"
+        )
+    endif()
+
+    set(FALAFEL_SANITIZER_FLAGS
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+    )
+
+    target_compile_options(falafel_protocol PRIVATE ${FALAFEL_SANITIZER_FLAGS})
+    target_compile_options(test_protocol PRIVATE ${FALAFEL_SANITIZER_FLAGS})
+    target_link_options(test_protocol PRIVATE ${FALAFEL_SANITIZER_FLAGS})
 endif()
 
 add_test(

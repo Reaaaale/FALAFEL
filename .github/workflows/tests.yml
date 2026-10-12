@@ -6,18 +6,54 @@ on:
 
 jobs:
   test:
-    name: Build and Test
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC Debug
+            cc: gcc
+            cxx: g++
+            build_dir: build/gcc
+            sanitizer_option: "-DFALAFEL_ENABLE_SANITIZERS=OFF"
+            asan_options: ""
+            ubsan_options: ""
+          - name: Clang Debug
+            cc: clang
+            cxx: clang++
+            build_dir: build/clang
+            sanitizer_option: "-DFALAFEL_ENABLE_SANITIZERS=OFF"
+            asan_options: ""
+            ubsan_options: ""
+          - name: Clang Debug with ASan and UBSan
+            cc: clang
+            cxx: clang++
+            build_dir: build/sanitizers
+            sanitizer_option: "-DFALAFEL_ENABLE_SANITIZERS=ON"
+            asan_options: halt_on_error=1
+            ubsan_options: halt_on_error=1:print_stacktrace=1
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      ASAN_OPTIONS: ${{ matrix.asan_options }}
+      UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+        run: >-
+          cmake -S . -B "${{ matrix.build_dir }}"
+          -DCMAKE_C_COMPILER="${{ matrix.cc }}"
+          -DCMAKE_BUILD_TYPE=Debug
+          ${{ matrix.sanitizer_option }}
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build "${{ matrix.build_dir }}"
 
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure
