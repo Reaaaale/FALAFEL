@@ -1,0 +1,15 @@
+# Build output
+/build/
+/.cache/
+
+# ESP-IDF generated files
+/firmware/build/
+/firmware/sdkconfig
+/firmware/sdkconfig.old
+/firmware/dependencies.lock
+/firmware/managed_components/
+
+# Editors and macOS
+.DS_Store
+.vscode/settings.json
+

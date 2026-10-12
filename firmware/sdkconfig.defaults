@@ -1,0 +1,3 @@
+# Intentionally contains no board-specific settings yet.
+CONFIG_IDF_TARGET="esp32s3"
+

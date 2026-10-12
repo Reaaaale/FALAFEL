@@ -1,0 +1,26 @@
+# Development log
+
+## Milestone 2 — Complete simulated GUI
+
+- Added a three-personality home (Taxi, Cuoco, Promemoria) navigated by a
+  horizontal gesture, with dedicated primitive artwork and page indicators.
+- Added reusable status bar setters for Wi-Fi, peer connection, battery, and
+  unread message count.
+- Added a scrollable sent/received conversation and a working LVGL textarea and
+  virtual keyboard composer.
+- Added temporary in-app notifications which preserve the active screen.
+- Introduced platform-independent callbacks for send, personality change, and
+  message-list opening. Simulator callbacks log events; no network request is
+  made by the GUI.
+- Split the shared GUI into coordinator, theme, status, home, messages, and
+  composer modules. Shared GUI code includes only LVGL and standard C headers.
+
+## Milestone 1 — Desktop Simulator
+
+- Verified the local macOS build tools and SDL2 installation.
+- Added a pinned LVGL dependency resolved by CMake into the build directory.
+- Added a 320 x 480 SDL2 host with a minimal shared LVGL screen.
+- Added a minimal ESP-IDF project skeleton without board drivers or pin guesses.
+- ESP-IDF was not found in the current shell (`idf.py` absent and `IDF_PATH`
+  unset), so firmware compilation is deferred until that environment is
+  installed or activated.
