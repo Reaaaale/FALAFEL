@@ -9,6 +9,12 @@
 /firmware/dependencies.lock
 /firmware/managed_components/
 
+
+# compiled tests
+
+/test/test_protocol
+
+
 # Editors and macOS
 .DS_Store
 .vscode/settings.json
