@@ -15,7 +15,7 @@ typedef enum {
 } falafel_personality_t;
 
 typedef struct {
-    void (*on_send_message)(const char *text, void *user_data);
+    bool (*on_send_message)(const char *text, void *user_data);
     void (*on_personality_changed)(falafel_personality_t personality,
                                    void *user_data);
     void (*on_messages_opened)(void *user_data);
@@ -36,6 +36,8 @@ void falafel_gui_set_unread_count(uint16_t count);
 /** Select the adjacent personality. Return true only when it changed. */
 bool falafel_gui_next_personality(void);
 bool falafel_gui_previous_personality(void);
+/** Apply synchronized state without firing the local-change callback. */
+bool falafel_gui_set_personality_remote(falafel_personality_t personality);
 
 /** True while the home/personality screen is the active screen. */
 bool falafel_gui_is_home_active(void);

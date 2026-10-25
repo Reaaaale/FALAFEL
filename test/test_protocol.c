@@ -312,6 +312,15 @@ static void run_all_tests(void)
     test_deserialization();
     test_invalid_packets();
     test_payload_boundaries();
+    falafel_event_t event = {.source_id=1,.destination_id=2,.id=3,.timestamp=4,
+        .type=FALAFEL_EVENT_TEXT,.payload_length=4,.payload={'c','i','a','o'}};
+    falafel_event_t decoded = {0}; uint8_t wire[FALAFEL_MAX_EVENT_SIZE]; size_t size=0;
+    assert(falafel_event_serialize(&event,wire,sizeof(wire),&size));
+    assert(falafel_event_deserialize(wire,size,&decoded));
+    assert(decoded.id==3&&memcmp(decoded.payload,"ciao",4)==0);
+    falafel_event_t preserved=decoded;
+    wire[2]=99;assert(!falafel_event_deserialize(wire,size,&decoded));
+    assert(memcmp(&decoded,&preserved,sizeof(decoded))==0);
 }
 
 int main(int argc, char **argv)

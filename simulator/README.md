@@ -20,10 +20,14 @@ From the repository root:
 ```sh
 cmake -S simulator -B build/simulator -G Ninja
 cmake --build build/simulator
-./build/simulator/falafel_simulator
+./build/simulator/falafel_simulator --device 1 --peer 2 --data /tmp/falafel-a.state
 ```
 
 Press `Control-C` in the terminal, or close the SDL window, to stop it.
+
+Start the relay and second instance as described in the root README. Network I/O
+is non-blocking and reconnects automatically. The device state file retains the
+outgoing queue and synchronized personality across restarts.
 
 On the home screen, personalities can be changed either by dragging at least
 50 pixels horizontally with the left mouse button, or by scrolling horizontally

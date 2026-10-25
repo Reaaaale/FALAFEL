@@ -1,88 +1,16 @@
 #include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
-
+#include <string.h>
 #include "falafel_app.h"
-
-static bool fake_next_message_id(void *user_data, uint64_t *message_id)
-{
-    (void)user_data;
-    *message_id = UINT64_C(42);
-    return true;
-}
-
-static bool fake_current_time(void *user_data, uint64_t *timestamp)
-{
-    (void)user_data;
-    *timestamp = UINT64_C(1700000000);
-    return true;
-}
-
-static void test_app_init(void)
-{
-    int user_data = 123;
-    const falafel_app_config_t config = {
-        .next_message_id = fake_next_message_id,
-        .current_time = fake_current_time,
-        .user_data = &user_data,
-    };
-    falafel_app_t app;
-
-    assert(falafel_app_init(&app, &config) == FALAFEL_APP_OK);
-    assert(app.config.next_message_id == fake_next_message_id);
-    assert(app.config.current_time == fake_current_time);
-    assert(app.config.user_data == &user_data);
-}
-
-static void test_app_init_rejects_invalid_arguments(void)
-{
-    const falafel_app_config_t valid_config = {
-        .next_message_id = fake_next_message_id,
-        .current_time = fake_current_time,
-        .user_data = NULL,
-    };
-    const falafel_app_config_t missing_id_provider = {
-        .next_message_id = NULL,
-        .current_time = fake_current_time,
-        .user_data = NULL,
-    };
-    const falafel_app_config_t missing_time_provider = {
-        .next_message_id = fake_next_message_id,
-        .current_time = NULL,
-        .user_data = NULL,
-    };
-    falafel_app_t app;
-
-    assert(falafel_app_init(&app, &valid_config) == FALAFEL_APP_OK);
-
-    assert(
-        falafel_app_init(NULL, &valid_config) ==
-        FALAFEL_APP_INVALID_ARGUMENT
-    );
-    assert(
-        falafel_app_init(&app, NULL) ==
-        FALAFEL_APP_INVALID_ARGUMENT
-    );
-    assert(
-        falafel_app_init(&app, &missing_id_provider) ==
-        FALAFEL_APP_INVALID_ARGUMENT
-    );
-    assert(
-        falafel_app_init(&app, &missing_time_provider) ==
-        FALAFEL_APP_INVALID_ARGUMENT
-    );
-
-    assert(app.config.next_message_id == fake_next_message_id);
-    assert(app.config.current_time == fake_current_time);
-    assert(app.config.user_data == NULL);
-}
-
-int main(void)
-{
-    test_app_init();
-    test_app_init_rejects_invalid_arguments();
-
-    puts("All application initialization tests passed.");
-    return 0;
-}
+typedef struct {uint64_t id,time;bool fail_id,fail_time,send_ok;size_t sends;} fixture_t;
+static bool id_provider(void *p,uint64_t *v){fixture_t *f=p;if(f->fail_id)return false;*v=++f->id;return true;}
+static bool time_provider(void *p,uint64_t *v){fixture_t *f=p;if(f->fail_time)return false;*v=++f->time;return true;}
+static bool sender(void *p,const falafel_event_t *e){fixture_t *f=p;(void)e;f->sends++;return f->send_ok;}
+static falafel_app_t make_app(fixture_t *f,uint32_t own,uint32_t peer){falafel_app_t a;falafel_app_config_t c={id_provider,time_provider,sender,f,own,peer};assert(falafel_app_init(&a,&c)==FALAFEL_APP_OK);return a;}
+static void test_init(void){fixture_t f={0};falafel_app_t a;falafel_app_config_t c={id_provider,time_provider,sender,&f,1,2};assert(falafel_app_init(&a,&c)==FALAFEL_APP_OK);assert(falafel_app_init(NULL,&c)==FALAFEL_APP_INVALID_ARGUMENT);c.device_id=0;assert(falafel_app_init(&a,&c)==FALAFEL_APP_INVALID_ARGUMENT);}
+static void test_creation_and_failures(void){fixture_t f={.send_ok=true};falafel_app_t a=make_app(&f,1,2);uint64_t id=99;assert(falafel_app_create_text(&a,"ciao",&id)==FALAFEL_APP_OK&&id==1&&a.queue_count==1);assert(falafel_app_create_text(&a,"",NULL)==FALAFEL_APP_EMPTY_TEXT);char text[FALAFEL_MAX_PAYLOAD_SIZE+2];memset(text,'x',sizeof(text));text[sizeof(text)-1]='\0';assert(falafel_app_create_text(&a,text,NULL)==FALAFEL_APP_TEXT_TOO_LONG);size_t before=a.queue_count;f.fail_id=true;assert(falafel_app_create_text(&a,"x",NULL)==FALAFEL_APP_PROVIDER_FAILED&&a.queue_count==before);f.fail_id=false;f.fail_time=true;assert(falafel_app_create_text(&a,"x",NULL)==FALAFEL_APP_PROVIDER_FAILED&&a.queue_count==before);}
+static void test_queue_retry_and_states(void){fixture_t f={.send_ok=false};falafel_app_t a=make_app(&f,1,2);assert(falafel_app_queue_at(&a,0)==NULL);for(size_t i=0;i<FALAFEL_APP_QUEUE_CAPACITY;++i){char s[8];snprintf(s,sizeof(s),"m%zu",i);assert(falafel_app_create_text(&a,s,NULL)==FALAFEL_APP_OK);}assert(falafel_app_create_text(&a,"full",NULL)==FALAFEL_APP_QUEUE_FULL);assert(a.queue[0].event.id<a.queue[1].event.id);assert(falafel_app_flush(&a)==FALAFEL_APP_PROVIDER_FAILED);f.send_ok=true;assert(falafel_app_flush(&a)==FALAFEL_APP_OK&&f.sends==FALAFEL_APP_QUEUE_CAPACITY+1);uint64_t id=a.queue[0].event.id;assert(falafel_app_transition(&a,id,FALAFEL_MESSAGE_DEVICE_RECEIVED)==FALAFEL_APP_INVALID_TRANSITION);assert(falafel_app_transition(&a,id,FALAFEL_MESSAGE_RELAY_ACCEPTED)==FALAFEL_APP_OK);assert(falafel_app_transition(&a,id,FALAFEL_MESSAGE_QUEUED)==FALAFEL_APP_INVALID_TRANSITION);assert(falafel_app_transition(&a,id,FALAFEL_MESSAGE_DEVICE_RECEIVED)==FALAFEL_APP_OK);}
+static falafel_event_t personality(uint32_t src,uint32_t dst,uint64_t id,uint64_t rev,uint8_t value){falafel_event_t e={.source_id=src,.destination_id=dst,.id=id,.type=FALAFEL_EVENT_PERSONALITY,.revision=rev,.personality=value};return e;}
+static void test_sync(void){fixture_t fa={.send_ok=true},fb={.send_ok=true};falafel_app_t a=make_app(&fa,1,2),b=make_app(&fb,2,1);assert(falafel_app_set_personality(&a,1)==FALAFEL_APP_OK);bool changed=false;falafel_event_t e=a.queue[0].event;assert(falafel_app_receive(&b,&e,&changed)==FALAFEL_APP_OK&&changed&&b.personality==1);assert(falafel_app_receive(&b,&e,&changed)==FALAFEL_APP_DUPLICATE&&!changed);falafel_event_t old=personality(1,2,99,0,0);assert(falafel_app_receive(&b,&old,&changed)==FALAFEL_APP_IGNORED);assert(b.queue_count==0);assert(falafel_app_set_personality(&a,2)==FALAFEL_APP_OK);assert(falafel_app_set_personality(&b,0)==FALAFEL_APP_OK);falafel_event_t ae=a.queue[1].event,be=b.queue[0].event;assert(ae.revision==be.revision);assert(falafel_app_receive(&a,&be,&changed)==FALAFEL_APP_OK&&changed);assert(falafel_app_receive(&b,&ae,&changed)==FALAFEL_APP_IGNORED);assert(a.personality==b.personality&&a.personality==0);}
+static void test_ack_distinction(void){fixture_t f={.send_ok=true};falafel_app_t a=make_app(&f,1,2);assert(falafel_app_create_text(&a,"x",NULL)==FALAFEL_APP_OK);uint64_t id=a.queue[0].event.id;falafel_event_t ack={.source_id=UINT32_MAX,.destination_id=1,.id=id,.type=FALAFEL_EVENT_ACK,.ack_phase=FALAFEL_ACK_RELAY_ACCEPTED};assert(falafel_app_receive(&a,&ack,NULL)==FALAFEL_APP_OK&&a.queue[0].state==FALAFEL_MESSAGE_RELAY_ACCEPTED);ack.source_id=2;ack.ack_phase=FALAFEL_ACK_DEVICE_RECEIVED;assert(falafel_app_receive(&a,&ack,NULL)==FALAFEL_APP_OK&&a.queue[0].state==FALAFEL_MESSAGE_DEVICE_RECEIVED);}
+int main(void){test_init();test_creation_and_failures();test_queue_retry_and_states();test_sync();test_ack_distinction();puts("All application tests passed.");return 0;}

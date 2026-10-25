@@ -1,31 +1,47 @@
 # Falafel Device
 
-Falafel Device is a learning-oriented embedded project for two ESP32-S3 devices.
-The first milestone is deliberately small: run the same LVGL GUI entry point in
-a 320 x 480 SDL2 window on macOS.
+Falafel is a portable C11 application core plus an LVGL desktop simulator for a
+paired-device messaging experiment. The MVP runs two simulator instances through
+a self-hosted local relay, including offline delivery and synchronized
+Taxi/Cuoco/Promemoria state.
 
-## Milestone 1: desktop simulator
-
-Requirements currently verified on the development machine:
-
-- macOS on Apple Silicon
-- CMake 4.4.4
-- Ninja 1.13.2
-- Apple Clang 21
-- SDL2 2.32.74 (`sdl2-compat` from Homebrew)
-
-Configure, build, and run from the repository root:
+## Build and test
 
 ```sh
+cmake -S . -B build/tests -G Ninja -DFALAFEL_ENABLE_SANITIZERS=ON
+cmake --build build/tests
+ctest --test-dir build/tests --output-on-failure
+
 cmake -S simulator -B build/simulator -G Ninja
 cmake --build build/simulator
-./build/simulator/falafel_simulator
 ```
 
-The first configure downloads the pinned LVGL 9.4.0 source into the build
-directory. No package is installed globally.
+The simulator configure downloads pinned LVGL 9.4.0 and requires SDL2. Core
+tests need CMake, a C11 compiler, and Python 3 for relay integration.
 
-The ESP-IDF project under `firmware/` is only a minimal placeholder. Display,
-touch, camera, battery, networking, and board pin configuration are intentionally
-not implemented yet.
+## Run two devices
 
+Use three terminals from the repository root:
+
+```sh
+python3 relay/falafel_relay.py --pair 1:2 --port 7777 --data /tmp/falafel-relay.json
+./build/simulator/falafel_simulator --device 1 --peer 2 --data /tmp/falafel-a.state
+./build/simulator/falafel_simulator --device 2 --peer 1 --data /tmp/falafel-b.state
+```
+
+Host and port are configurable with `--host`/`--port`; equivalents are
+`FALAFEL_DEVICE_ID`, `FALAFEL_PEER_ID`, `FALAFEL_RELAY_HOST`,
+`FALAFEL_RELAY_PORT`, and `FALAFEL_DATA_FILE`. Stop B, send and change personality
+on A, then restart B to exercise offline delivery and alignment. Notifications
+and logs show relay acceptance and device receipt as separate phases.
+
+## MVP boundaries
+
+Traffic is unencrypted plain TCP and is suitable only for local development.
+There are no production credentials, authentication, Internet deployment,
+hardware drivers, or end-to-end encryption. The future security boundary is the
+serialized event passed to transport; use a reviewed protocol/library such as
+Noise with X25519 and ChaCha20-Poly1305 after an explicit design decision.
+
+The future target is an as-yet-unselected ESP32-S3 touch-display board. No board
+pins or drivers are assumed, and `firmware/sdkconfig` is untouched by this MVP.

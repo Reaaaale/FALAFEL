@@ -7,10 +7,13 @@ static void send_clicked(lv_event_t *event)
     (void)event;
     const char *text = lv_textarea_get_text(textarea);
     if (text == NULL || text[0] == '\0') { falafel_gui_show_notification("Scrivi prima un messaggio"); return; }
-    if (falafel_gui.callbacks.on_send_message != NULL)
-        falafel_gui.callbacks.on_send_message(text, falafel_gui.callbacks.user_data);
+    if (falafel_gui.callbacks.on_send_message == NULL ||
+        !falafel_gui.callbacks.on_send_message(text, falafel_gui.callbacks.user_data)) {
+        falafel_gui_show_notification("Invio non riuscito");
+        return;
+    }
     falafel_gui_add_sent_message(text); lv_textarea_set_text(textarea, "");
-    falafel_gui_show_messages(); falafel_gui_show_notification("Messaggio pronto");
+    falafel_gui_show_messages(); falafel_gui_show_notification("Messaggio in coda");
 }
 
 lv_obj_t *falafel_composer_create(lv_obj_t *parent)

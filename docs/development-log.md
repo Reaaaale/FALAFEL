@@ -1,5 +1,16 @@
 # Development log
 
+## Milestone 3 — Local end-to-end MVP
+
+- Added a portable fixed-capacity application queue, explicit delivery states,
+  text validation, retry, ACK handling, and shared-personality convergence.
+- Added a versioned routed event envelope while preserving the legacy protocol.
+- Connected LVGL to a non-blocking desktop TCP adapter and local persistence.
+- Added a standard-library Python relay with pair authorization, deduplication,
+  offline persistence, reconnection, and distinct relay/device ACKs.
+- Added core, persistence, malformed-event, conflict, offline/restart, and relay
+  integration coverage. Hardware and production security remain out of scope.
+
 ## Milestone 2 — Complete simulated GUI
 
 - Added a three-personality home (Taxi, Cuoco, Promemoria) navigated by a

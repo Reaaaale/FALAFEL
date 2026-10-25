@@ -1,6 +1,8 @@
 # Build output
 /build/
 /.cache/
+/.falafel-relay/
+*.state
 
 # ESP-IDF generated files
 /firmware/build/

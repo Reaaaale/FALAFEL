@@ -75,6 +75,15 @@ static bool select_personality(falafel_personality_t selected)
     return true;
 }
 
+bool falafel_gui_set_personality_remote(falafel_personality_t selected)
+{
+    if (selected >= FALAFEL_PERSONALITY_COUNT || selected == falafel_gui.personality) return false;
+    falafel_gui.personality = selected;
+    falafel_home_refresh();
+    animate_personality(0);
+    return true;
+}
+
 bool falafel_gui_next_personality(void)
 {
     if (falafel_gui.personality >= FALAFEL_PERSONALITY_REMINDER) return false;

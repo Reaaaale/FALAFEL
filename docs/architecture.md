@@ -1,83 +1,52 @@
-# Falafel Device architecture
-
-## Goals and boundaries
-
-Falafel separates portable product code from platform integration. The desktop
-simulator is the first platform; ESP-IDF on the Waveshare ESP32-S3 Touch LCD
-3.5 will be the second. The firmware uses ESP-IDF, not Arduino.
-
-The layers are intentionally modest:
-
-- `shared/gui`: LVGL screen and widget construction, with no ESP32 headers.
-- `shared/app`: future application flow and use cases, independent of UI and hardware.
-- `shared/models`: future plain data structures shared by application modules.
-- `simulator`: SDL2/LVGL startup and desktop event loop.
-- `firmware`: ESP-IDF startup and, later, hardware/platform adapters.
-
-Only directories needed by the current milestone are populated. Future modules
-such as messages, camera, power, storage, and network should be introduced when
-their first real behavior is developed, rather than as empty abstractions.
-
-## Dependency direction
-
-Platform entry points call portable code. Portable GUI and application code must
-not include ESP-IDF or SDL headers. Platform services will later expose small,
-purpose-specific interfaces to application code where a real use case requires
-them.
+# Falafel architecture
 
 ```text
-simulator (SDL2) ----\
-                     +--> GUI (LVGL) --> callback API --> future application layer
-firmware (ESP-IDF) --/                         |
-                                                +--> future platform services
+LVGL GUI -> portable application -> versioned event protocol
+         -> POSIX desktop adapter -> local TCP relay -> peer adapter
+         -> portable application -> LVGL GUI
 ```
 
-The public boundary is `shared/include/falafel_gui.h`. Status and message data
-enter the GUI through small setter functions. User actions leave it through
-platform-independent callbacks carrying plain C values and strings. The GUI
-does not access the Internet, networking APIs, storage, FreeRTOS, ESP-IDF, or
-SDL; a future application layer will decide how to handle each callback.
+`shared/app` and `shared/include` are C11, fixed-capacity, and contain no LVGL,
+SDL, POSIX, ESP-IDF, or dynamic allocation. The simulator owns sockets and local
+state files; the relay owns routing and offline persistence. A future ESP-IDF
+adapter can implement the same transport/persistence boundaries with Wi-Fi/NVS.
 
-The GUI is split by responsibility into theme, status bar, personality home,
-message list, composer, and a small coordinator. LVGL remains an implementation
-detail behind the public header.
+## Protocol and delivery
 
-For the current desktop milestone only the simulator branch is connected to
-LVGL. Firmware LVGL integration waits for the official board documentation and
-driver choice.
-
-## Device-to-device communication (future decision)
-
-The devices are separated by the public Internet, so direct discovery alone is
-not sufficient. A reachable service will likely relay messages and presence:
+Legacy `falafel_message_*` packets remain supported. The MVP envelope starts
+with magic `FL`, version 1, then deterministic big-endian kind, source,
+destination, event ID, timestamp, logical revision, personality, ACK phase,
+payload length and payload. Its header is 40 bytes; payload is at most 256 bytes.
 
 ```text
-Falafel A
-    |
- Internet
-    |
-service / backend
-    |
- Internet
-    |
-Falafel B
+CREATED -> QUEUED -> RELAY_ACCEPTED -> DEVICE_RECEIVED -> READ (reserved)
 ```
 
-Alternatives to evaluate later:
+Retry preserves the event ID and the relay deduplicates `(source, ID, kind)`.
+Relay acceptance and device receipt are distinct ACKs. READ is not implemented.
 
-- MQTT broker: mature pub/sub semantics, retained state and quality-of-service
-  options; requires careful identity, authorization, and topic design.
-- Small HTTPS/WebSocket backend: more control over message storage, presence,
-  media, and product-specific APIs; more server code and operations work.
-- Managed realtime service: quickest infrastructure start, but adds vendor,
-  pricing, and embedded-client constraints.
+## Personality convergence
 
-The decision must consider authentication, offline delivery, presence accuracy,
-reconnection, message ordering, photo size/storage, TLS memory cost on ESP32-S3,
-and service ownership. No protocol is selected in Milestone 1.
+A local change increments a logical revision. Remote application never invokes
+the local-change callback, preventing loops. The greatest `(revision,
+author_device_id)` wins, so simultaneous changes converge without physical-clock
+agreement. Duplicates and older events are ignored. The relay retains the latest
+undelivered personality update for each destination.
 
-## Configuration and secrets
+## Persistence, limits and transport
 
-Wi-Fi credentials, device keys, tokens, and certificates must never be committed.
-The future provisioning and secure-storage design will be documented before
-networking is implemented.
+The relay atomically replaces validated JSON with at most 512 pending events by
+default and 1,024 deduplication keys. Each desktop device atomically replaces a
+versioned binary adapter-private file holding personality, revision, author, the
+16-entry outgoing queue and 32 recent received identities. Missing/corrupt files
+are ignored. TCP registration is `HELLO own peer`, followed by 32-bit
+length-prefixed frames. The adapter polls non-blockingly and reconnects each
+second. The relay permits only its configured pair and does not log bodies.
+
+## Security and future hardware
+
+Local TCP is deliberately cleartext and unauthenticated: it is not production
+secure. Encryption belongs around serialized bytes outside the core; no custom
+cryptography exists here. Display, touch, power, camera, provisioning, secure
+identity, network transport and ESP-IDF persistence remain future work after an
+ESP32-S3 board is selected from official documentation.

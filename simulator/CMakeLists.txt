@@ -26,6 +26,9 @@ target_link_libraries(lvgl PUBLIC SDL2::SDL2)
 add_executable(falafel_simulator
     src/main.c
     src/trackpad_navigation.c
+    src/desktop_transport.c
+    ../shared/app/falafel_app.c
+    ../shared/app/falafel_protocol.c
     ../shared/gui/falafel_gui.c
     ../shared/gui/falafel_assets.c
     ../shared/gui/falafel_theme.c
