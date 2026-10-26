@@ -1,5 +1,89 @@
 # Falafel development changelog
 
+## 2026-10-26 — ESP32-C6 crypto experiment stack fix
+
+### Components modified
+
+- ESP32-C6 crypto experiment entry point and sdkconfig defaults.
+- ESP32-C6 experiment and project-status documentation.
+
+### Bugs fixed
+
+- Removed the 1,536-byte opaque crypto context from the 3,584-byte main-task
+  stack and allocated it from internal 8-bit-capable heap instead.
+- Preserved the configured main-task stack size rather than hiding the fault
+  with an arbitrary stack increase.
+- Unified self-test cleanup and final reporting so each boot produces exactly
+  one clear `PASS` or `FAIL` result.
+
+### Tests performed
+
+- ESP32-C6 cross-build with ESP-IDF 5.5.2 and GNU RISC-V GCC 14.2.0.
+- Disassembly check: 32-byte `app_main()` frame and 336-byte
+  `known_vector_tests()` frame after the fix.
+- Final physical ESP32-C6-DevKitC-1 run passed all cryptographic self-tests and
+  returned normally from `app_main()` with Mbed TLS 3.6.5.
+- Final measurements: 651,170 us elapsed; 3,584-byte configured main stack;
+  1,952-byte minimum free stack; 460,768/460,296 bytes free heap before/after;
+  434,176-byte largest free block; and `0x3a100`-byte application binary.
+- All 11 desktop CTest targets normally and under ASan/UBSan, including crypto
+  vectors, relay integration and transport end-to-end tests.
+
+### Architectural decisions
+
+- Long-lived opaque cryptographic contexts belong in explicitly managed heap
+  storage on ESP-IDF; small fixed known-answer buffers remain local.
+- FreeRTOS stack high-watermarks are logged around initialization, vector tests
+  and cleanup so later growth is measurable.
+- The C6 hardware self-test uses the NIST AES-256-GCM one-block vector because
+  ESP-IDF 5.5.2's accelerated backend rejects zero-length input. The desktop
+  suite retains coverage of the empty-plaintext vector.
+- The shared crypto provider remains unchanged.
+
+The stack correction and the subsequent one-block GCM self-test binary were
+both confirmed on hardware. The 1,952-byte minimum free stack gives adequate
+headroom for this bounded, one-shot experiment without increasing the task
+stack. The 472-byte heap delta is recorded for future repeated-initialization
+testing; it does not prevent the current one-shot program from completing.
+
+The ESP-IDF dependency identifies itself as
+`mbedtls-3.6.5-11-gffb280bb63`. Its local history does not contain the ECC
+side-channel correction released in Mbed TLS 3.6.7, so this result validates
+X25519 functionality but does not approve that dependency for production use
+with persistent private keys.
+
+## 2026-10-26 — Milestone 3A cryptographic foundation
+
+### Components modified
+
+- Shared portable crypto API and Mbed TLS provider.
+- Root CMake, desktop tests and standalone ESP32-C6 experiment.
+- Architecture, protocol, status and build documentation.
+
+### Features implemented
+
+- Secure RNG, X25519, HKDF-SHA256 and AES-256-GCM behind a C11 API without
+  public Mbed TLS types.
+- Constant-time equality, best-effort zeroization and explicit authentication
+  failure handling.
+- Official vectors, tamper/length/buffer tests and a C6 serial self-test with
+  timing and heap measurements but no secret logging.
+
+### Tests performed
+
+- Host crypto and existing portable targets built with AppleClang.
+- Crypto, core, protocol and persistence CTests passed.
+- ESP32-C6 cross-build passed with ESP-IDF 5.5.2.
+- All 11 CTest targets passed normally and under ASan/UBSan, including relay
+  fault injection and transport end-to-end tests.
+
+### Architectural decisions
+
+- AES-256-GCM is used because C6/S3 support AES acceleration and ESP-IDF enables
+  GCM without optional ChaCha/Poly1305 configuration.
+- Desktop Mbed TLS is pinned to official 3.6.7 with archive hash verification.
+- Runtime event v1, ACK semantics and GUI remain unchanged.
+
 ## 2026-10-26 — GCC CI warning fix
 
 ### Components modified

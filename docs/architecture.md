@@ -120,6 +120,21 @@ output limit is exceeded; durable pending records remain available.
 
 ## Security and future hardware
 
+Milestone 3A adds `shared/include/falafel_crypto.h` and an Mbed TLS provider in
+`shared/crypto/`. The API exposes no Mbed TLS types and is independent of LVGL,
+SDL, TCP and ESP-IDF. A caller-owned opaque context contains entropy and CTR-DRBG
+state; X25519, HKDF-SHA256 and AES-256-GCM are available on desktop and ESP-IDF.
+AES-256-GCM was selected because both C6 and S3 expose AES acceleration and
+ESP-IDF enables GCM by default. No insecure fallback exists.
+The only new dependency is Apache-2.0-licensed Mbed TLS: desktop builds pin
+3.6.7, while ESP-IDF supplies its managed copy. The opaque RNG context reserves
+1,536 bytes; temporary key-operation memory is owned by Mbed TLS. C6 and S3 use
+the same provider source, with hardware acceleration selected by ESP-IDF.
+
+The provider does not manage nonce uniqueness, pairing, key persistence or
+replay windows. Those remain responsibilities of a future versioned E2E
+envelope. Event wire v1 and the runtime application path are unchanged.
+
 TCP registration and traffic remain unauthenticated and unencrypted. Source-ID
 checks prevent accidental cross-routing but not a malicious peer or relay. The
 relay sees all content and metadata. End-to-end encryption, TLS, production

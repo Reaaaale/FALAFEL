@@ -18,10 +18,20 @@ cmake --build build/simulator
 
 The simulator configure downloads pinned LVGL 9.4.0 and requires SDL2. Core
 tests need CMake, a C11 compiler, and Python 3 for relay integration.
+The crypto target downloads the pinned official Mbed TLS 3.6.7 release archive
+and verifies its SHA-256 hash.
 
 The test suite includes relay fault injection and a headless C
 application→transport→relay→transport→application integration test. GUI clicks
 are not automated.
+
+## Cryptographic foundation
+
+Milestone 3A adds a portable Mbed TLS provider for secure random generation,
+X25519, HKDF-SHA256, AES-256-GCM, constant-time comparison and secure erasure.
+The provider is not yet connected to messages, so Falafel is not yet E2EE.
+The ESP32-C6 hardware experiment and flash commands are documented in
+`experiments/esp32c6-crypto/README.md`; ESP32-S3 remains the final target.
 
 ## Run two devices
 
@@ -60,7 +70,7 @@ See `docs/architecture.md` for the state machine and limits and
 
 ## MVP boundaries
 
-Traffic is unencrypted plain TCP and is suitable only for local development.
+Runtime traffic is unencrypted plain TCP and is suitable only for local development.
 There are no production credentials, authentication, Internet deployment,
 hardware drivers, or end-to-end encryption. The future security boundary is the
 serialized event passed to transport; use a reviewed protocol/library such as

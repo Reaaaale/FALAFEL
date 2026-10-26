@@ -32,3 +32,8 @@ connection.
 This protocol is not production secure. A future E2E envelope must sit between
 the application codec and transport without treating these numeric IDs as
 authentication.
+
+Milestone 3A does not alter this format. The cryptographic provider is tested in
+isolation only; no event-v1 field is encrypted or cryptographically
+authenticated. Nonce allocation, replay protection and incompatible-version
+handling must be defined with the future E2E envelope before runtime use.
