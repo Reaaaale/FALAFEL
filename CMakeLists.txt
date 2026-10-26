@@ -11,6 +11,7 @@ option(FALAFEL_ENABLE_SANITIZERS
 )
 
 enable_testing()
+find_package(Threads REQUIRED)
 
 add_library(falafel_protocol STATIC
     shared/app/falafel_protocol.c
@@ -46,7 +47,10 @@ add_executable(test_app
 if(UNIX)
     add_executable(test_desktop_state test/test_desktop_state.c simulator/src/desktop_transport.c)
     target_include_directories(test_desktop_state PRIVATE shared/include simulator/src)
-    target_link_libraries(test_desktop_state PRIVATE falafel_app)
+    target_link_libraries(test_desktop_state PRIVATE falafel_app Threads::Threads)
+    add_executable(test_transport_e2e test/test_transport_e2e.c simulator/src/desktop_transport.c)
+    target_include_directories(test_transport_e2e PRIVATE shared/include simulator/src)
+    target_link_libraries(test_transport_e2e PRIVATE falafel_app Threads::Threads)
 endif()
 
 target_link_libraries(test_app PRIVATE
@@ -60,6 +64,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(test_app PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     if(TARGET test_desktop_state)
         target_compile_options(test_desktop_state PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    endif()
+    if(TARGET test_transport_e2e)
+        target_compile_options(test_transport_e2e PRIVATE -Wall -Wextra -Werror -UNDEBUG)
     endif()
 endif()
 
@@ -107,6 +114,10 @@ if(FALAFEL_ENABLE_SANITIZERS)
         target_compile_options(test_desktop_state PRIVATE ${FALAFEL_SANITIZER_FLAGS})
         target_link_options(test_desktop_state PRIVATE ${FALAFEL_SANITIZER_FLAGS})
     endif()
+    if(TARGET test_transport_e2e)
+        target_compile_options(test_transport_e2e PRIVATE ${FALAFEL_SANITIZER_FLAGS})
+        target_link_options(test_transport_e2e PRIVATE ${FALAFEL_SANITIZER_FLAGS})
+    endif()
 endif()
 
 add_test(NAME protocol_init COMMAND test_protocol init)
@@ -122,3 +133,8 @@ endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME relay_integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/test/test_relay.py)
 set_tests_properties(relay_integration PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 15)
+if(TARGET test_transport_e2e)
+    add_test(NAME transport_end_to_end COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/test/test_transport_e2e.py $<TARGET_FILE:test_transport_e2e>)
+    set_tests_properties(transport_end_to_end PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 20)
+endif()

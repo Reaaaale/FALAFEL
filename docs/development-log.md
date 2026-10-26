@@ -1,5 +1,17 @@
 # Development log
 
+## Milestone 2 — Reliability Hardening (2026-10-26)
+
+- Hardened the MVP to at-least-once delivery with durable relay acceptance,
+  pending/completed recovery, persistent ID reservations and bounded replay
+  protection.
+- Replaced blocking connection and relay writes with bounded non-blocking state
+  machines.
+- Added a portable explicit desktop state format with CRC and strict rejection
+  of corrupt or unsupported data.
+- Added fault-injection and application-to-application transport integration
+  tests. See `CHANGELOG.md` for the detailed session record.
+
 ## Milestone 3 — Local end-to-end MVP
 
 - Added a portable fixed-capacity application queue, explicit delivery states,

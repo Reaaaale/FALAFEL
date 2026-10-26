@@ -26,8 +26,13 @@ cmake --build build/simulator
 Press `Control-C` in the terminal, or close the SDL window, to stop it.
 
 Start the relay and second instance as described in the root README. Network I/O
-is non-blocking and reconnects automatically. The device state file retains the
-outgoing queue and synchronized personality across restarts.
+is non-blocking, including DNS and connect, and reconnects automatically. The
+device state file retains the outgoing queue, received inbox, ID reservation and
+synchronized personality across restarts. Its explicit version-2 format uses
+fixed-width fields and CRC-32; corrupt or unsupported files stop startup.
+
+The status bar's `R` dot reports only relay connectivity. Peer presence is not
+implemented.
 
 On the home screen, personalities can be changed either by dragging at least
 50 pixels horizontally with the left mouse button, or by scrolling horizontally

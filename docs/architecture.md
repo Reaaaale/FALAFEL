@@ -1,52 +1,126 @@
 # Falafel architecture
 
 ```text
-LVGL GUI -> portable application -> versioned event protocol
-         -> POSIX desktop adapter -> local TCP relay -> peer adapter
-         -> portable application -> LVGL GUI
+LVGL GUI -> portable C11 application -> event protocol
+         -> non-blocking desktop adapter -> durable local relay
+         -> peer adapter -> application -> LVGL GUI
 ```
 
-`shared/app` and `shared/include` are C11, fixed-capacity, and contain no LVGL,
-SDL, POSIX, ESP-IDF, or dynamic allocation. The simulator owns sockets and local
-state files; the relay owns routing and offline persistence. A future ESP-IDF
-adapter can implement the same transport/persistence boundaries with Wi-Fi/NVS.
+The portable code under `shared/app` and `shared/include` has no LVGL, SDL,
+POSIX, networking, filesystem, or ESP-IDF dependency. The desktop adapter owns
+DNS, sockets and local files. The relay owns routing and durable delivery state.
+A future ESP-IDF adapter can provide equivalent transport and persistence
+services without changing the application state machine.
 
-## Protocol and delivery
+## Protocol roles
 
-Legacy `falafel_message_*` packets remain supported. The MVP envelope starts
-with magic `FL`, version 1, then deterministic big-endian kind, source,
-destination, event ID, timestamp, logical revision, personality, ACK phase,
-payload length and payload. Its header is 40 bytes; payload is at most 256 bytes.
+`falafel_message_t` is the original 19-byte legacy packet and remains available
+only for compatibility and its existing tests. The desktop MVP uses
+`falafel_event_t`, a version-1 routed event with a deterministic 40-byte
+big-endian header and at most 256 payload bytes.
+
+Event kinds are text, personality update and acknowledgement. Deserialization
+rejects unknown versions, kinds, lengths and malformed packets before modifying
+the destination. The application independently enforces origin and destination:
+
+- text and personality events must come from the configured peer;
+- `RELAY_ACCEPTED` must come from `FALAFEL_RELAY_ID`;
+- `DEVICE_RECEIVED` must come from the peer or from the relay's persisted final
+  status;
+- every destination must be the local device.
+
+IDs are authorization hints only. The protocol is cleartext and has no
+cryptographic authentication.
+
+## Reliability state machine
 
 ```text
-CREATED -> QUEUED -> RELAY_ACCEPTED -> DEVICE_RECEIVED -> READ (reserved)
+local creation
+    |
+    v
+QUEUED -- durable relay commit --> RELAY_ACCEPTED
+    ^                                  |
+    | retry same event ID              | retry/status recovery
+    +----------------------------------+
+                                       |
+                          durable recipient record
+                                       |
+                                       v
+                              DEVICE_RECEIVED
 ```
 
-Retry preserves the event ID and the relay deduplicates `(source, ID, kind)`.
-Relay acceptance and device receipt are distinct ACKs. READ is not implemented.
+`RELAY_ACCEPTED` means the event is present in the relay's atomically replaced
+state file. A socket write to the recipient does not advance this state.
+`DEVICE_RECEIVED` is generated after the receiving simulator has committed its
+application state. The relay then atomically moves the event from `pending` to
+`completed`. If the original sender is offline, retransmitting the same event
+after reconnecting recovers both statuses from the relay.
 
-## Personality convergence
+The sender retries both `QUEUED` and `RELAY_ACCEPTED` records. Duplicate ACKs
+are idempotent. An ACK can affect only a matching locally queued ID.
 
-A local change increments a logical revision. Remote application never invokes
-the local-change callback, preventing loops. The greatest `(revision,
-author_device_id)` wins, so simultaneous changes converge without physical-clock
-agreement. Duplicates and older events are ignored. The relay retains the latest
-undelivered personality update for each destination.
+## Relay persistence and backpressure
 
-## Persistence, limits and transport
+The relay file is JSON format version 2 with validated `pending` and `completed`
+records. New events are persisted before acceptance is queued. Recipient ACKs
+are persisted before a pending record is removed or final status is forwarded.
+Writes use a file in the same directory, `flush`, `fsync`, atomic replacement,
+and directory `fsync` where supported.
 
-The relay atomically replaces validated JSON with at most 512 pending events by
-default and 1,024 deduplication keys. Each desktop device atomically replaces a
-versioned binary adapter-private file holding personality, revision, author, the
-16-entry outgoing queue and 32 recent received identities. Missing/corrupt files
-are ignored. TCP registration is `HELLO own peer`, followed by 32-bit
-length-prefixed frames. The adapter polls non-blockingly and reconnects each
-second. The relay permits only its configured pair and does not log bodies.
+Default bounds are 512 pending and 1,024 completed records. A full pending queue
+does not evict data and does not acknowledge the new event; the sender retains
+and retries it. Completed retention is bounded: after 1,024 newer completions,
+relay-level historical deduplication is no longer guaranteed.
+
+## Device persistence and event IDs
+
+Desktop state format v2 uses explicit big-endian fixed-width fields, length
+checks, event serialization and CRC-32. It contains:
+
+- personality value, revision and author;
+- outgoing queue and delivery states;
+- 64 recent received identities;
+- up to 32 durably received text events;
+- the reserved event-ID high-watermark.
+
+State writes use a temporary file, `flush`, `fsync` and atomic rename. Corrupt
+and unsupported formats stop startup; they are never silently reset. MVP format
+v1 is intentionally rejected because it cannot prove the next safe ID after all
+outgoing events were removed.
+
+IDs use the device ID in the high 32 bits and a persistent sequence in the low
+32 bits. The adapter durably reserves blocks of 64 values before allocation.
+After a crash or restart, unused values are skipped. Exhaustion fails explicitly.
+
+## Deduplication and personality convergence
+
+The application persists 64 recent `(source, ID)` identities. Text duplicates
+inside that bounded window do not produce duplicate application deliveries.
+The relay also persists pending events and 1,024 completed identities. These are
+bounded policies, not unlimited replay protection.
+
+Local personality events are coalesced only before their first successful
+transport submission. Submitted or relay-accepted events are retained until
+terminal confirmation. The relay never discards older accepted personality
+events. Remote updates use the greatest `(revision,
+author_device_id)`, making duplicates and older events harmless and simultaneous
+updates deterministic without retransmission loops.
+
+## Desktop transport
+
+DNS resolution runs on a short-lived worker thread. Socket creation, connect
+completion, handshake, reads and writes are non-blocking. Connect completion is
+checked with zero-timeout readiness polling and has a five-second timeout;
+reconnect attempts are spaced by one second. Input and output buffers are
+bounded. Partial I/O, `EINTR`, `EAGAIN`, resets and remote closure are handled.
+
+The relay uses selector-managed output buffers rather than `sendall()`. Slow
+clients cannot block the event loop and are disconnected when their 64 KiB
+output limit is exceeded; durable pending records remain available.
 
 ## Security and future hardware
 
-Local TCP is deliberately cleartext and unauthenticated: it is not production
-secure. Encryption belongs around serialized bytes outside the core; no custom
-cryptography exists here. Display, touch, power, camera, provisioning, secure
-identity, network transport and ESP-IDF persistence remain future work after an
-ESP32-S3 board is selected from official documentation.
+TCP registration and traffic remain unauthenticated and unencrypted. Source-ID
+checks prevent accidental cross-routing but not a malicious peer or relay. The
+relay sees all content and metadata. End-to-end encryption, TLS, production
+identity, ESP32-S3 NVS, Secure Boot and flash encryption remain future work.

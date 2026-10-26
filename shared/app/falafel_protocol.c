@@ -153,7 +153,7 @@ bool falafel_message_deserialize(
     return true;
 }
 
-static bool valid_event(const falafel_event_t *e)
+bool falafel_event_is_valid(const falafel_event_t *e)
 {
     if (!e || !e->source_id || !e->destination_id || e->source_id==e->destination_id ||
         !e->id || e->payload_length>FALAFEL_MAX_PAYLOAD_SIZE) return false;
@@ -165,7 +165,7 @@ static bool valid_event(const falafel_event_t *e)
 bool falafel_event_serialize(const falafel_event_t *e,uint8_t *b,size_t n,size_t *out)
 {
     if(!out)return false; *out=0;
-    if(!valid_event(e)||!b||n<FALAFEL_EVENT_WIRE_HEADER_SIZE+e->payload_length)return false;
+    if(!falafel_event_is_valid(e)||!b||n<FALAFEL_EVENT_WIRE_HEADER_SIZE+e->payload_length)return false;
     b[0]=EVENT_MAGIC_0;b[1]=EVENT_MAGIC_1;b[2]=EVENT_VERSION;b[3]=(uint8_t)e->type;
     write_u32(b+4,e->source_id);write_u32(b+8,e->destination_id);write_u64(b+12,e->id);
     write_u64(b+20,e->timestamp);write_u64(b+28,e->revision);b[36]=e->personality;
@@ -179,6 +179,6 @@ bool falafel_event_deserialize(const uint8_t *b,size_t n,falafel_event_t *e)
     falafel_event_t t={0};t.type=(falafel_event_type_t)b[3];t.source_id=read_u32(b+4);t.destination_id=read_u32(b+8);
     t.id=read_u64(b+12);t.timestamp=read_u64(b+20);t.revision=read_u64(b+28);t.personality=b[36];t.ack_phase=(falafel_ack_phase_t)b[37];
     t.payload_length=(uint16_t)(((uint16_t)b[38]<<8)|b[39]);
-    if(n!=FALAFEL_EVENT_WIRE_HEADER_SIZE+t.payload_length||!valid_event(&t))return false;
+    if(n!=FALAFEL_EVENT_WIRE_HEADER_SIZE+t.payload_length||!falafel_event_is_valid(&t))return false;
     if(t.payload_length)memcpy(t.payload,b+FALAFEL_EVENT_WIRE_HEADER_SIZE,t.payload_length);*e=t;return true;
 }

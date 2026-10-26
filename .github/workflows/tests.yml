@@ -57,3 +57,22 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure
+
+  simulator:
+    name: Desktop simulator build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install simulator dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev ninja-build
+
+      - name: Configure simulator
+        run: cmake -S simulator -B build/simulator -G Ninja
+
+      - name: Build simulator
+        run: cmake --build build/simulator
+
+      - name: Check Python sources
+        run: python3 -m py_compile relay/falafel_relay.py test/test_relay.py test/test_transport_e2e.py

@@ -34,12 +34,13 @@ lv_obj_t *falafel_status_bar_create(lv_obj_t *parent)
 
     lv_obj_t *name = falafel_theme_create_label(bar, "FALAFEL OS", &lv_font_montserrat_16, FALAFEL_COLOR_CREAM);
     lv_obj_align(name, LV_ALIGN_LEFT_MID, 0, 0);
-    wifi_label = falafel_theme_create_label(bar, "W", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
+    wifi_label = falafel_theme_create_label(bar, "R", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
     lv_obj_align(wifi_label, LV_ALIGN_LEFT_MID, 135, 0);
     wifi_dot = create_status_dot(bar, 151);
-    peer_label = falafel_theme_create_label(bar, "P", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
+    peer_label = falafel_theme_create_label(bar, "", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
     lv_obj_align(peer_label, LV_ALIGN_LEFT_MID, 176, 0);
     peer_dot = create_status_dot(bar, 192);
+    lv_obj_add_flag(peer_dot, LV_OBJ_FLAG_HIDDEN);
     battery_label = falafel_theme_create_label(bar, "--%", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
     lv_obj_align(battery_label, LV_ALIGN_RIGHT_MID, 0, 0);
     falafel_status_bar_refresh();

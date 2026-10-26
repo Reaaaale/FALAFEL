@@ -10,6 +10,7 @@
 #define FALAFEL_MAX_MESSAGE_SIZE (FALAFEL_HEADER_SIZE + FALAFEL_MAX_PAYLOAD_SIZE)
 #define FALAFEL_EVENT_WIRE_HEADER_SIZE 40U
 #define FALAFEL_MAX_EVENT_SIZE (FALAFEL_EVENT_WIRE_HEADER_SIZE + FALAFEL_MAX_PAYLOAD_SIZE)
+#define FALAFEL_RELAY_ID UINT32_MAX
 
 typedef enum 
 {
@@ -65,6 +66,7 @@ bool falafel_message_deserialize(
 );
 bool falafel_event_serialize(const falafel_event_t *, uint8_t *, size_t, size_t *);
 bool falafel_event_deserialize(const uint8_t *, size_t, falafel_event_t *);
+bool falafel_event_is_valid(const falafel_event_t *event);
 #endif // FALAFEL_PROTOCOL_H
 
 

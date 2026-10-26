@@ -19,6 +19,10 @@ cmake --build build/simulator
 The simulator configure downloads pinned LVGL 9.4.0 and requires SDL2. Core
 tests need CMake, a C11 compiler, and Python 3 for relay integration.
 
+The test suite includes relay fault injection and a headless C
+application→transport→relay→transport→application integration test. GUI clicks
+are not automated.
+
 ## Run two devices
 
 Use three terminals from the repository root:
@@ -34,6 +38,25 @@ Host and port are configurable with `--host`/`--port`; equivalents are
 `FALAFEL_RELAY_PORT`, and `FALAFEL_DATA_FILE`. Stop B, send and change personality
 on A, then restart B to exercise offline delivery and alignment. Notifications
 and logs show relay acceptance and device receipt as separate phases.
+
+The `R` indicator means “relay connected”; it does not claim the peer is online.
+Device state files use format v2. Unsupported or corrupt files stop startup
+instead of being silently reset. The earlier MVP format v1 cannot be migrated
+safely because it contains no reliable event-ID high-watermark.
+
+## Reliability guarantees
+
+- New relay events are acknowledged only after durable state replacement.
+- Pending events remain until a valid recipient acknowledgement is persisted.
+- Senders retry through disconnects and recover final status after reconnecting.
+- Delivery is at least once; device and relay deduplication are explicitly
+  bounded.
+- Event IDs reserve persistent ranges and are not reused after normal crashes or
+  restarts.
+- Full relay queues apply backpressure without evicting accepted messages.
+
+See `docs/architecture.md` for the state machine and limits and
+`docs/protocol.md` for the wire format.
 
 ## MVP boundaries
 

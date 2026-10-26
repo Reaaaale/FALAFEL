@@ -5,6 +5,7 @@ project(falafel_simulator LANGUAGES C)
 include(FetchContent)
 
 find_package(SDL2 CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/config/lv_conf.h"
     CACHE STRING "Falafel LVGL configuration" FORCE)
@@ -53,4 +54,5 @@ target_compile_options(falafel_simulator PRIVATE
 target_link_libraries(falafel_simulator PRIVATE
     lvgl::lvgl
     SDL2::SDL2
+    Threads::Threads
 )
