@@ -1,5 +1,28 @@
 # Falafel development changelog
 
+## 2026-10-26 — GCC CI warning fix
+
+### Components modified
+
+- Event protocol serialization formatting.
+
+### Bugs fixed
+
+- Removed two misleading-indentation diagnostics reported by GCC with
+  `-Werror`, preserving the existing serializer and deserializer logic.
+
+### Tests performed
+
+- Complete 10-test host suite.
+- Complete 10-test host suite with AddressSanitizer and
+  UndefinedBehaviorSanitizer.
+- Core and simulator builds with `-Werror -Wmisleading-indentation` under
+  AppleClang.
+- Full simulator build.
+
+The local macOS environment does not provide GNU GCC or a Linux container, so
+the final Ubuntu/GCC confirmation remains the next GitHub Actions run.
+
 ## 2026-10-26 — Reliability Hardening
 
 ### Components modified

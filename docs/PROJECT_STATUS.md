@@ -29,7 +29,10 @@ not production firmware and not a secure Internet messaging system.
 - Desktop simulator compilation on macOS.
 
 CI is configured for GCC, Clang, sanitizer tests and an Ubuntu simulator build.
-The updated CI workflow has not yet run remotely in this working tree.
+The GCC `-Wmisleading-indentation` failures in the event serializer and
+deserializer have been corrected without changing protocol behavior. Local
+builds pass with that warning promoted to an error, but the updated workflow
+has not yet run remotely on Ubuntu/GCC in this working tree.
 
 ## Current architecture
 
