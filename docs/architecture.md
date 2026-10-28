@@ -135,6 +135,32 @@ The provider does not manage nonce uniqueness, pairing, key persistence or
 replay windows. Those remain responsibilities of a future versioned E2E
 envelope. Event wire v1 and the runtime application path are unchanged.
 
+Milestone 3B.1 adds only isolated experiments. Noise-C's XX state machine with
+25519/AES-GCM/SHA-256 works on macOS and cross-builds for ESP32-C6, but its
+reference crypto duplicates the provider primitives and uses dynamic
+allocation. It is a candidate pending a provider/Mbed TLS backend experiment
+and physical C6 measurements, not part of the runtime architecture.
+
+Milestone 3B.2 adds `shared/pairing`, a transport- and GUI-independent C11
+state machine around the same pinned Noise-C revision. Initiator and responder
+perform the three XX flights, derive a uniformly distributed 12-digit SAS from
+the handshake hash with domain separation and rejection sampling, then protect
+role/SAS/transcript-bound decisions with the directional `Split()` cipher
+states. Completion requires an authenticated accept from each side. The module
+is exercised by separate macOS processes but is not connected to the runtime
+application path and does not persist identities.
+
+Milestone 3B.3 adds a filesystem-independent persistent-state codec beside the
+pairing module. It validates the local X25519 private/public relationship and
+allows a peer public key to be captured only from a pairing in `COMPLETE`.
+The macOS adapter stores the private key as a Keychain generic-password item
+with `AfterFirstUnlockThisDeviceOnly` accessibility. A versioned `0600`
+metadata file stores public keys, generation, flags, and CRC32 using
+same-directory temporary files, file/directory `fsync()`, and atomic rename.
+CRC32 detects accidental corruption, not malicious modification. Old valid
+metadata can be replayed because no trusted monotonic counter or external
+witness exists; generation is not an anti-rollback guarantee.
+
 TCP registration and traffic remain unauthenticated and unencrypted. Source-ID
 checks prevent accidental cross-routing but not a malicious peer or relay. The
 relay sees all content and metadata. End-to-end encryption, TLS, production

@@ -1,0 +1,86 @@
+#include "falafel_pairing.h"
+#include "pairing_io.h"
+#include "pairing_store_macos.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+typedef struct { char path[256], service[128], account[64]; falafel_pairing_macos_store store; } location;
+static void location_init(location *l, const char *directory, const char *name)
+{
+    snprintf(l->path, sizeof(l->path), "%s/%s.state", directory, name);
+    snprintf(l->service, sizeof(l->service), "org.falafel.pairing.test.%ld", (long)getppid());
+    snprintf(l->account, sizeof(l->account), "%s", name);
+    l->store.metadata_path = l->path; l->store.keychain_service = l->service; l->store.keychain_account = l->account;
+}
+static int pair_peer(int fd, falafel_pairing_role role, location *location)
+{
+    falafel_pairing_persistent_state state; falafel_pairing *pairing = NULL;
+    uint8_t wire[256]; size_t size; char sas[13];
+    if (falafel_pairing_macos_load_or_create(&location->store, &state) ||
+        falafel_pairing_new(&pairing, role, state.local_private)) return 1;
+    for (unsigned flight = 0; flight < 3; ++flight) {
+        int sends = (flight != 1) == (role == FALAFEL_PAIRING_INITIATOR);
+        if ((sends && (falafel_pairing_write_handshake(pairing, wire, sizeof(wire), &size) || send_frame(fd, wire, size))) ||
+            (!sends && (recv_frame(fd, wire, sizeof(wire), &size) || falafel_pairing_read_handshake(pairing, wire, size)))) return 2;
+    }
+    if (falafel_pairing_get_sas(pairing, sas) || falafel_pairing_confirm(pairing, sas, wire, sizeof(wire), &size) ||
+        send_frame(fd, wire, size) || recv_frame(fd, wire, sizeof(wire), &size) ||
+        falafel_pairing_read_confirmation(pairing, wire, size) ||
+        falafel_pairing_persistent_complete(&state, pairing) || falafel_pairing_macos_save(&location->store, &state)) return 3;
+    falafel_pairing_free(pairing); falafel_pairing_persistent_clear(&state); return 0;
+}
+static int reload_peer(location *self, location *other)
+{
+    falafel_pairing_persistent_state a, b; int rc = 1;
+    if (!falafel_pairing_macos_load_or_create(&self->store, &a) &&
+        !falafel_pairing_macos_load_or_create(&other->store, &b) && a.has_pairing && b.has_pairing &&
+        !memcmp(a.peer_public, b.local_public, 32)) rc = 0;
+    falafel_pairing_persistent_clear(&a); falafel_pairing_persistent_clear(&b); return rc;
+}
+int main(void)
+{
+    char directory[] = "/tmp/falafel-persist-XXXXXX"; location a, b; int sockets[2], sa, sb; pid_t pa, pb;
+    falafel_pairing_persistent_state before, after; falafel_pairing *incomplete = NULL;
+    uint8_t old_public[32], wire[256]; size_t wire_size; FILE *file;
+    if (!mkdtemp(directory)) return 1; location_init(&a, directory, "a"); location_init(&b, directory, "b");
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets)) return 3;
+    pa = fork(); if (!pa) { close(sockets[1]); exit(pair_peer(sockets[0], FALAFEL_PAIRING_INITIATOR, &a)); }
+    pb = fork(); if (!pb) { close(sockets[0]); exit(pair_peer(sockets[1], FALAFEL_PAIRING_RESPONDER, &b)); }
+    close(sockets[0]); close(sockets[1]); waitpid(pa, &sa, 0); waitpid(pb, &sb, 0);
+    if (!WIFEXITED(sa) || WEXITSTATUS(sa) || !WIFEXITED(sb) || WEXITSTATUS(sb)) {
+        fprintf(stderr, "pairing children failed: initiator=%d responder=%d\n",
+                WIFEXITED(sa) ? WEXITSTATUS(sa) : -1, WIFEXITED(sb) ? WEXITSTATUS(sb) : -1);
+        return 4;
+    }
+    pa = fork(); if (!pa) exit(reload_peer(&a, &b)); waitpid(pa, &sa, 0);
+    pb = fork(); if (!pb) exit(reload_peer(&b, &a)); waitpid(pb, &sb, 0);
+    if (WEXITSTATUS(sa) || WEXITSTATUS(sb)) return 5;
+    /* An interrupted replacement leaves the last committed pairing intact. */
+    if (falafel_pairing_macos_load_or_create(&a.store, &before)) return 6;
+    if (falafel_pairing_macos_simulate_interrupted_save(&a.store, &before) != FALAFEL_STORE_ERROR ||
+        falafel_pairing_macos_load_or_create(&a.store, &after) || !after.has_pairing ||
+        memcmp(before.peer_public, after.peer_public, 32)) return 7;
+    /* A corrupt committed file fails closed and never restores a pairing. */
+    file = fopen(a.path, "r+b"); if (!file || fputc('X', file) == EOF || fclose(file) ||
+        falafel_pairing_macos_load_or_create(&a.store, &after) != FALAFEL_STORE_CORRUPT) return 8;
+    /* Explicit unpair recovers, removes peer, and rotates identity. */
+    memcpy(old_public, before.local_public, 32);
+    if (falafel_pairing_macos_unpair(&a.store, 1, &after) || after.has_pairing ||
+        !memcmp(old_public, after.local_public, 32)) return 9;
+    /* Restart during an uncommitted pairing retains identity but no peer. */
+    if (falafel_pairing_macos_unpair(&b.store, 0, &after) ||
+        falafel_pairing_new(&incomplete, FALAFEL_PAIRING_INITIATOR, after.local_private) ||
+        falafel_pairing_write_handshake(incomplete, wire, sizeof(wire), &wire_size)) return 10;
+    falafel_pairing_free(incomplete); incomplete = NULL;
+    if (falafel_pairing_macos_load_or_create(&b.store, &before) || before.has_pairing ||
+        memcmp(before.local_public, after.local_public, 32)) return 11;
+    falafel_pairing_macos_destroy(&a.store); falafel_pairing_macos_destroy(&b.store);
+    rmdir(directory);
+    puts("persistent pairing restart/unpair: PASS"); return 0;
+}

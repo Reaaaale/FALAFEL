@@ -33,6 +33,23 @@ The provider is not yet connected to messages, so Falafel is not yet E2EE.
 The ESP32-C6 hardware experiment and flash commands are documented in
 `experiments/esp32c6-crypto/README.md`; ESP32-S3 remains the final target.
 
+Milestone 3B.1 evaluates the exact suite
+`Noise_XX_25519_AESGCM_SHA256` in isolated macOS and ESP32-C6 experiments.
+Desktop and independent-vector tests and the C6 cross-build pass; physical C6
+execution and a backend that reuses the 3A primitives remain required before
+adoption. See `experiments/noise-feasibility/README.md`.
+
+Milestone 3B.2 adds a portable desktop pairing state machine and two-process
+macOS harness, including a 12-digit SAS and authenticated bilateral approval.
+It remains isolated from GUI, relay, event-v1 messaging and persistence. See
+`experiments/desktop-pairing/README.md`.
+
+Milestone 3B.3 persists the local identity and verified peer across desktop
+restarts. The private X25519 key is stored in macOS Keychain; atomic metadata
+contains only public state. Corrupt and interrupted saves fail closed, and
+explicit unpair may rotate the identity. The pairing remains outside event-v1
+and application E2EE.
+
 ## Run two devices
 
 Use three terminals from the repository root:
@@ -73,8 +90,8 @@ See `docs/architecture.md` for the state machine and limits and
 Runtime traffic is unencrypted plain TCP and is suitable only for local development.
 There are no production credentials, authentication, Internet deployment,
 hardware drivers, or end-to-end encryption. The future security boundary is the
-serialized event passed to transport; use a reviewed protocol/library such as
-Noise with X25519 and ChaCha20-Poly1305 after an explicit design decision.
+serialized event passed to transport. Noise-C is currently only a feasibility
+candidate; it has not been integrated or approved for production use.
 
 The future target is an as-yet-unselected ESP32-S3 touch-display board. No board
 pins or drivers are assumed, and `firmware/sdkconfig` is untouched by this MVP.

@@ -4,6 +4,9 @@
 /.cache/
 /.falafel-relay/
 *.state
+*.state.tmp.*
+*.pairing-state
+*.pairing-state.tmp.*
 
 # ESP-IDF generated files
 /firmware/build/

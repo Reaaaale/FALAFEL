@@ -1,0 +1,21 @@
+set(NOISE_PROTOCOL_SOURCES
+    ${NOISE_C_SOURCE_DIR}/src/protocol/cipherstate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/dhstate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/errors.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/handshakestate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/hashstate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/internal.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/names.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/patterns.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/randstate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/symmetricstate.c
+    ${NOISE_C_SOURCE_DIR}/src/protocol/util.c
+    ${NOISE_C_SOURCE_DIR}/src/backend/ref/cipher-aesgcm.c
+    ${NOISE_C_SOURCE_DIR}/src/backend/ref/dh-curve25519.c
+    ${NOISE_C_SOURCE_DIR}/src/backend/ref/hash-sha256.c
+    ${NOISE_C_SOURCE_DIR}/src/crypto/aes/rijndael-alg-fst.c
+    ${NOISE_C_SOURCE_DIR}/src/crypto/donna/curve25519-donna.c
+    ${NOISE_C_SOURCE_DIR}/src/crypto/ghash/ghash.c
+    ${NOISE_C_SOURCE_DIR}/src/crypto/sha2/sha256.c
+    ${CMAKE_CURRENT_LIST_DIR}/noise_minimal_stubs.c
+    ${CMAKE_CURRENT_LIST_DIR}/noise_platform_random.c)

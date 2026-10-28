@@ -1,5 +1,143 @@
 # Falafel development changelog
 
+## 2026-10-27 — Milestones 3B.1–3B.3 consolidation
+
+### Components modified
+
+- Shared pinned Noise-C CMake declaration and the three 3B build targets.
+- Ignore rules and reproducible build/test documentation.
+
+### Changes and verification
+
+- Centralized revision `cfe25410979a87391bb9ac8d4d4bef64e9f268c6` and archive
+  SHA-256 verification. Clean builds now fetch under their build directories;
+  `NOISE_C_SOURCE_DIR` is only an optional offline override.
+- Added explicit ignore patterns for pairing state and atomic temporary files.
+- Removed literal private-key test fixtures from the feasibility harness; each
+  side now generates its distinct test identity with Noise-C's platform RNG.
+- Clean Noise Debug and ASan/UBSan suites: 1/1 passed in each.
+- Noise-C upstream `make check` unit and vector suite passed from the fetched
+  pinned source tree, including the selected XX/25519/AES-GCM/SHA-256 vector.
+- Clean pairing Debug, Release, and ASan/UBSan suites: 4/4 passed in each,
+  including Keychain restart/persistence and all negative tests.
+- Existing normal and sanitizer regressions: 11/11 passed in each.
+- Repository scan found no committed local state, private key, or credential.
+
+## 2026-10-27 — Milestone 3B.3 persistent desktop pairing
+
+### Components modified
+
+- Portable persistent pairing state, validation, and metadata codec.
+- macOS Keychain/atomic-file storage backend and restart harness.
+- Pairing API peer-key export restricted to bilaterally completed sessions.
+- Desktop pairing build, tests, architecture, status, protocol, and README.
+
+### Features implemented and bugs fixed
+
+- Local identities are created before pairing and reused across restarts;
+  private keys remain in Keychain and are never written to metadata or logs.
+- Verified peer keys are committed only from `COMPLETE`; rejected and
+  incomplete sessions cannot export a persistable peer.
+- Atomic `0600` metadata replacement uses random same-directory temporary
+  files, file/directory `fsync()`, and rename. Corrupt state fails closed and
+  explicit unpair supports identity rotation.
+- Fault injection exposed and fixed temporary-name collision after an
+  interrupted save by replacing PID-derived names with `mkstemp()`.
+
+### Tests performed
+
+- Fresh AppleClang Debug, Release, and ASan/UBSan builds: 4/4 CTest targets
+  passed in each configuration.
+- Covered codec corruption/truncation/key mismatch, interrupted replacement,
+  process restart, peer recognition, incomplete pairing restart, unpair, and
+  identity rotation using temporary real macOS Keychain items.
+- Existing repository and Noise feasibility regressions: passed.
+
+### Architectural decisions and limits
+
+- Filesystem operations are outside the portable state module. Keychain holds
+  the only at-rest copy of the local private key; the file is public metadata.
+- CRC32 and atomicity detect corruption/torn writes but cannot prevent replay
+  of an older valid metadata file. No anti-rollback guarantee is claimed.
+
+## 2026-10-27 — Milestone 3B.2 desktop Noise XX pairing
+
+### Components modified
+
+- Portable `shared/pairing` API and implementation.
+- Standalone macOS pairing build, interactive peer, two-process harness, and
+  pairing tests.
+- README, architecture, protocol and project-status documentation.
+
+### Features implemented and bugs fixed
+
+- Complete initiator/responder Noise XX exchange with distinct X25519
+  identities using the Noise-C revision pinned by 3B.1.
+- Domain-separated SHA-256 SAS derivation with 40-bit rejection sampling and a
+  zero-padded 12-digit display.
+- Explicit state enforcement plus transcript-, SAS-, and role-bound decisions
+  authenticated with the Noise `Split()` cipher states; completion requires
+  both accepts.
+- The corrected ESP32-C6 benchmark completed 100 handshakes with PASS and no
+  watchdog warnings.
+- Fixed the 3B.2 Release test build by explicitly keeping assertions enabled
+  for `test_pairing`; Release optimization and `-Werror` remain enabled, and
+  no positive or negative check is compiled out by `NDEBUG`.
+
+### Tests performed
+
+- AppleClang debug build and CTest pairing unit/two-process suite: passed.
+- Positive completion and negative SAS mismatch, rejection, altered handshake,
+  altered confirmation, missing confirmation, premature confirmation,
+  duplicate and terminal-session reuse cases: passed.
+- ASan/UBSan pairing unit and two-process tests: 2/2 passed.
+- Existing normal and ASan/UBSan repository suites: 11/11 passed in each build;
+  the 3B.1 Noise feasibility regression also passed.
+- Fresh Debug and Release 3B.2 builds: 2/2 CTest targets passed in each; the
+  Release compile flags contain `-DNDEBUG` followed by `-UNDEBUG`, and the
+  standalone negative-test executable passed with its assertions active.
+
+### Architectural decisions
+
+- Pairing is a portable module independent of GUI and transport; the desktop
+  programs supply length-framed sockets only.
+- No GUI, relay, event-v1, 3A provider, persistence, or application E2EE change
+  is part of this milestone.
+
+## 2026-10-26 — Milestone 3B.1 Noise feasibility gate
+
+### Components modified
+
+- Isolated host Noise-C experiment and selected-suite build.
+- Standalone ESP32-C6 Noise experiment with platform RNG adapter and metrics.
+- Project status and experiment documentation.
+
+### Features implemented
+
+- Complete `Noise_XX_25519_AESGCM_SHA256` exchange with distinct static keys,
+  handshake-hash agreement, Split transport proof, bidirectional encryption,
+  fresh ephemerals, and negative protocol/AEAD/state tests.
+- Reproducible Noise-C commit and archive hash pinning without changing the 3A
+  provider or application architecture.
+
+### Tests performed
+
+- AppleClang 21 release build: experiment passed; 100-handshake mean 204.22 us.
+- AppleClang 21 ASan/UBSan build: passed.
+- Noise-C upstream unit and vector suite: passed, including the independent
+  Cacophony vector for the selected suite.
+- ESP-IDF 5.5.2 / RISC-V GCC 14.2.0 cross-build: passed; binary `0x2af20`,
+  total image content 175,796 bytes. Flash and physical execution not run
+  because no serial device was visible.
+
+### Architectural decisions
+
+- Decision is NEED FURTHER EVALUATION, not adoption: the state machine is a
+  viable candidate, while the stale, dynamically allocated reference backend
+  duplicates the existing X25519, AES-GCM, and SHA-256 implementation.
+- A provider/Mbed TLS backend experiment and physical C6 measurements are the
+  gate before Milestone 3B.2. No custom Noise XX implementation was created.
+
 ## 2026-10-26 — ESP32-C6 crypto experiment stack fix
 
 ### Components modified
