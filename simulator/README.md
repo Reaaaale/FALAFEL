@@ -194,6 +194,15 @@ retirement and the v2 persistence marker are described above.
 
 ## Verification
 
+CI portability fix (2026-11-03): `test_history.c` checks that the sensitive marker
+is absent from the binary saved record using a bounded C11 `memcmp` scan,
+including the last possible offset. It no longer requires nonstandard `memmem`
+or GNU feature macros (Darwin exposed that function; the Linux CI build did not).
+Local Apple Clang 21 Debug build and all four simulator tests passed with SDL
+dummy video. The history test also passed in a fresh ASan/UBSan build with the
+messaging runtime and Mbed TLS instrumented. GNU GCC/Linux were unavailable
+locally and still require GitHub Actions verification.
+
 ```sh
 ctest --test-dir build/simulator --output-on-failure
 # Optional rendered snapshots; create the output directory first:
@@ -239,7 +248,8 @@ local permissions. Existing duplicate-library linker/upstream CMake deprecation
 warnings remain. Hardware, physical trackpad, actual power-cut recovery and
 flash endurance are not verified. ESP32-S3 still needs atomic storage, protected
 identity handling, FreeRTOS ownership, networking and PSRAM/stack budgeting.
-The unchanged relay retains frames with separate capacity/replay-buffer limits;
+The relay retains frames with a finite cache limit; incremental delivery streams
+replay through its bounded output buffer (see `../relay/README.md`).
 100 messages each direction use 400 of its default 512 cached frames.
 
 `--ui-smoke-test` is an explicit GUI-only test mode requiring no credentials or

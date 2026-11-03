@@ -32,6 +32,9 @@ class Client:
         self.device = None
         self.peer = None
         self.version = 1
+        # Ordered, coalesced keys into durable pending state, not another copy
+        # of the backlog. At most one waiting delivery per cached record.
+        self.deliveries = {}
 
 
 class Relay:
@@ -203,7 +206,23 @@ class Relay:
             self._drop(client)
             return
         del client.output[:count]
+        self._fill_deliveries(client)
         self._set_events(client)
+
+    def _fill_deliveries(self, client):
+        """Queue complete frames only when they fit; resume after socket writes."""
+        while client.deliveries:
+            key = next(iter(client.deliveries))
+            record = self._find_pending(key)
+            # Legacy ACKs may retire a record while this client is backpressured.
+            if record is None or record.get("version", 1) != client.version:
+                del client.deliveries[key]
+                continue
+            frame = bytes.fromhex(record["frame"])
+            if len(client.output) + 4 + len(frame) > MAX_OUTPUT:
+                return
+            del client.deliveries[key]
+            self._queue_frame(client, frame)
 
     def _read(self, client):
         try:
@@ -374,6 +393,10 @@ class Relay:
             self.state = previous
             raise
 
+        # Do not retain waiting keys for legacy records that have been retired.
+        # Otherwise repeated ACK/new-message traffic could grow this queue while
+        # a slow recipient's output stays full.
+        client.deliveries.pop(match["key"], None)
         sender = self.by_device.get(destination)
         if sender is not None:
             self._queue_frame(sender, frame)
@@ -421,7 +444,8 @@ class Relay:
     def _deliver(self, record):
         recipient = self.by_device.get(record["destination"])
         if recipient is not None and recipient.version == record.get("version", 1):
-            self._queue_frame(recipient, bytes.fromhex(record["frame"]))
+            recipient.deliveries.setdefault(record["key"], None)
+            self._fill_deliveries(recipient)
 
     def _redeliver(self, device):
         for record in self.state["pending"]:

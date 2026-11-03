@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import selectors
 import socket
 import struct
 import subprocess
@@ -10,7 +11,15 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from relay.falafel_relay import Client, HEADER, PersistenceError, Relay
+from relay.falafel_relay import (Client, HEADER, MAIL_HEADER, MAX_OUTPUT,
+                                 PersistenceError, Relay)
+
+
+def encrypted_data(event_id):
+    """Maximum-size opaque DATA accepted by the relay; no identity provisioning."""
+    mid = event_id.to_bytes(16, "big")
+    envelope = b"FAE\x01\x01" + bytes([122]) + bytes(64) + mid + bytes(170)
+    return MAIL_HEADER.pack(b"FL", 2, 4, 1, 2, mid, len(envelope)) + envelope
 
 
 def event(kind, source, destination, event_id, payload=b"", revision=0,
@@ -86,10 +95,10 @@ class RelayTest(unittest.TestCase):
         self.relay.stop()
         self.temporary.cleanup()
 
-    def connect(self, own, peer, fragmented=False):
+    def connect(self, own, peer, fragmented=False, version=1):
         sock = socket.create_connection(("127.0.0.1", self.port), timeout=1)
         sock.settimeout(1)
-        hello = f"HELLO {own} {peer}\n".encode()
+        hello = f"{'HELLO2' if version == 2 else 'HELLO'} {own} {peer}\n".encode()
         if fragmented:
             for byte in hello:
                 sock.sendall(bytes([byte]))
@@ -172,6 +181,147 @@ class RelayTest(unittest.TestCase):
             [sys.executable, "relay/falafel_relay.py", "--port", str(self.port),
              "--data", self.state], capture_output=True, text=True)
         self.assertNotEqual(process.returncode, 0)
+
+    def test_large_replay_to_slow_tcp_client_after_restart(self):
+        frames = [encrypted_data(i) for i in range(226)]
+        self.assertGreater(sum(4 + len(f) for f in frames), MAX_OUTPUT)
+        self.relay.stop()
+        with open(self.state, "w", encoding="utf-8") as stream:
+            json.dump({"version": 2, "pending": [Relay._record_from_frame(f)
+                       for f in frames], "completed": []}, stream)
+        self.restart()
+        with self.connect(2, 1, version=2) as recipient:
+            # Let registration run before this deliberately slow reader drains.
+            time.sleep(0.05)
+            expected = b"".join(struct.pack(">I", len(f)) + f for f in frames)
+            received = bytearray()
+            while len(received) < len(expected):
+                part = recipient.recv(min(97, len(expected) - len(received)))
+                self.assertTrue(part, "relay disconnected during large replay")
+                received.extend(part)
+                time.sleep(0.0001)
+            self.assertEqual(received, expected)
+            recipient.settimeout(0.05)
+            with self.assertRaises(socket.timeout):
+                recipient.recv(1)
+        self.assertIsNone(self.relay.process.poll())
+        with open(self.state, encoding="utf-8") as stream:
+            self.assertEqual(len(json.load(stream)["pending"]), len(frames))
+
+
+class RelayReplayTest(unittest.TestCase):
+    """Deterministic backpressure on real socket pairs, without timing assumptions."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.relay = Relay("127.0.0.1", 0,
+                           os.path.join(self.temporary.name, "state.json"),
+                           [(1, 2), (2, 1)], 512)
+        self.addCleanup(self.relay.selector.close)
+        self.addCleanup(self.relay.server.close)
+
+    def register(self, version=2):
+        class SlowSocket:
+            def __init__(self, wrapped):
+                self.wrapped = wrapped
+                self.error = None
+
+            def fileno(self):
+                return self.wrapped.fileno()
+
+            def send(self, data):
+                if self.error:
+                    error, self.error = self.error, None
+                    raise error
+                return self.wrapped.send(data[:37])
+
+            def close(self):
+                self.wrapped.close()
+
+        left, right = socket.socketpair()
+        left.setblocking(False)
+        right.setblocking(False)
+        wrapped = SlowSocket(left)
+        self.addCleanup(wrapped.close)
+        self.addCleanup(right.close)
+        client = Client(wrapped)
+        self.relay.clients[wrapped] = client
+        self.relay.selector.register(wrapped, 1, client)
+        client.input.extend(b"HELLO2 2 1\n" if version == 2 else b"HELLO 2 1\n")
+        self.assertTrue(self.relay._consume_handshake(client))
+        self.assertIs(self.relay.by_device.get(2), client,
+                      "registration replay must not disconnect a slow client")
+        return client, right
+
+    def drain(self, client, reader, expected):
+        received = bytearray()
+        for _ in range(20000):
+            self.assertLessEqual(len(client.output), MAX_OUTPUT)
+            self.assertIs(self.relay.by_device.get(2), client)
+            self.relay._write(client)
+            try:
+                part = reader.recv(97)
+            except BlockingIOError:
+                part = b""
+            received.extend(part)
+            if len(received) >= len(expected):
+                break
+        self.assertEqual(received, expected)
+        self.assertEqual(client.output, b"")
+        self.assertFalse(self.relay.selector.get_key(client.sock).events &
+                         selectors.EVENT_WRITE)
+        with self.assertRaises(BlockingIOError):
+            reader.recv(1)
+
+    def test_226_maximum_frames_partial_writes_and_reconnect(self):
+        frames = [encrypted_data(i) for i in range(226)]
+        expected = b"".join(struct.pack(">I", len(f)) + f for f in frames)
+        self.assertGreater(len(expected), MAX_OUTPUT)
+        self.relay.state["pending"] = [Relay._record_from_frame(f) for f in frames]
+        saved = json.dumps(self.relay.state, sort_keys=True)
+        client, reader = self.register()
+        for error in (BlockingIOError(), InterruptedError()):
+            before = bytes(client.output)
+            client.sock.error = error
+            self.relay._write(client)
+            self.assertEqual(client.output, before)
+        # Disconnect mid-frame; a fresh registration must replay complete frames.
+        self.relay._write(client)
+        client.sock.error = BrokenPipeError()
+        self.relay._write(client)
+        self.assertNotIn(2, self.relay.by_device)
+        client, reader = self.register()
+        self.drain(client, reader, expected)
+        self.assertEqual(json.dumps(self.relay.state, sort_keys=True), saved)
+        self.relay._drop(client)
+
+    def test_live_delivery_and_retries_wait_behind_full_replay(self):
+        frames = [encrypted_data(i) for i in range(512)]
+        self.relay.state["pending"] = [Relay._record_from_frame(f) for f in frames[:226]]
+        client, reader = self.register()
+        for frame in frames[226:]:
+            record = Relay._record_from_frame(frame)
+            self.relay.state["pending"].append(record)
+            self.relay._deliver(record)
+            self.relay._deliver(record)  # repeated retry while still deferred
+        expected = b"".join(struct.pack(">I", len(f)) + f for f in frames)
+        self.drain(client, reader, expected)
+        self.relay._drop(client)
+
+    def test_legacy_ack_removes_deferred_record_without_skipping_others(self):
+        frames = [event(1, 1, 2, i, bytes(256)) for i in range(226)]
+        self.relay.state["pending"] = [Relay._record_from_frame(f) for f in frames]
+        client, reader = self.register(version=1)
+        ack = event(3, 2, 1, 224, ack=2)
+        self.relay._process_frame(client, ack)
+        self.assertIsNone(self.relay._find_pending("1:224:1"))
+        self.assertNotIn("1:224:1", client.deliveries)
+        expected = b"".join(struct.pack(">I", len(f)) + f
+                            for i, f in enumerate(frames) if i != 224)
+        self.drain(client, reader, expected)
+        self.assertEqual(len(self.relay.state["completed"]), 1)
+        self.relay._drop(client)
 
 
 class RelayFaultInjectionTest(unittest.TestCase):

@@ -104,6 +104,9 @@ limits. Stop/restart either device or the relay to exercise offline recovery.
   Active-outbox enqueue follows. Authenticated peer receipts mean durable inbox
   acceptance, never remote reading.
 - Exact ciphertext retry, reconnect and saved receipts recover pending delivery.
+- Relay cached replay/live delivery waits for space in its 65,536-byte output
+  buffer; slow readers do not need the backlog to fit at once. Cache GC remains
+  unimplemented. See [relay regression coverage](relay/README.md).
 - A dedicated worker owns crypto, network and storage. Bounded atomic queues let
   LVGL process events without waiting for those operations.
 - AES-GCM application history restores sent/received text, delivery and local read

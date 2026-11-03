@@ -295,6 +295,7 @@ static void reclaim_and_migration_crashes(void)
 }
 static void corruption_and_capacity(void)
 {
+    static const uint8_t sensitive[]="secret-capacity";
     paths(0,"capacity"); open_history(0,1);
     uint8_t id[16]; falafel_history_message m;
     static falafel_history other; falafel_history_posix other_store; char other_path[512];
@@ -306,7 +307,7 @@ static void corruption_and_capacity(void)
     falafel_mail_posix_close(&boxstores[0]);
     falafel_history_posix_close(&other_store); falafel_history_clear(&other);
     for(unsigned i=0;i<FALAFEL_HISTORY_CAPACITY;++i) {
-        id_for(id,20000+i); message(&m,0,0,id,(const uint8_t *)"secret-capacity",15);
+        id_for(id,20000+i); message(&m,0,0,id,sensitive,sizeof(sensitive)-1);
         assert(!falafel_history_put(&histories[0],&m));
     }
     id_for(id,50000); message(&m,0,0,id,(const uint8_t *)"full",4);
@@ -319,7 +320,9 @@ static void corruption_and_capacity(void)
     for(unsigned i=0;i<16;++i) snprintf(record_path+prefix+i*2,3,"%02x",m.id[i]);
     strcat(record_path,".msg");
     int fd=open(record_path,O_RDWR); assert(fd>=0); uint8_t saved[800]; assert(read(fd,saved,800)==800);
-    assert(!memmem(saved,sizeof(saved),"secret-capacity",15));
+    /* Binary-safe C11 search, including the last possible starting offset. */
+    for(size_t offset=0;offset<=sizeof(saved)-(sizeof(sensitive)-1);++offset)
+        assert(memcmp(saved+offset,sensitive,sizeof(sensitive)-1)!=0);
     uint8_t bad=saved[799]^1; assert(pwrite(fd,&bad,1,799)==1 && !fsync(fd)); close(fd);
     falafel_history_posix_close(&stores[0]); falafel_history_clear(&histories[0]);
     assert(!falafel_history_posix_open(&stores[0],historypath[0],0));

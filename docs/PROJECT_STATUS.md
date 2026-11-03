@@ -4,6 +4,21 @@ Last updated: 2026-11-03
 
 ## Current status
 
+2026-11-03 — CI test fixes implemented and locally verified: encrypted TCP tests
+now match immutable saved frames by ID, without assuming slot/arrival order;
+proxy captures verify exact retry bytes. History's sensitive-data check uses a
+portable binary C11 scan instead of `memmem`. Apple Clang host ASan/UBSan suite
+17/17, simulator Debug 4/4, three additional E2EE suite runs and a fresh
+vendor-instrumented history sanitizer test pass. GNU GCC/Linux are unavailable
+locally; GitHub Actions confirmation remains pending. No runtime/protocol change.
+
+2026-11-03 — Relay P1 replay fix implemented and host-verified. Cached replay and
+live deliveries now wait incrementally for bounded output space. All 10 relay
+tests and both selected relay/C-transport CTest entries pass; the two new
+226-maximum-DATA regressions failed on the original implementation. Frame/state
+formats, ACK semantics and cache retention are unchanged. GC remains planned.
+See [relay behavior and tests](../relay/README.md).
+
 Revalidation on 2026-11-03: fresh C6/native/sanitized builds and offline link
 checks PASS in `build/sec003-20261103/`; previous artifacts retained.
 
@@ -17,7 +32,8 @@ callback instrumentation forwards successful calls to the real SDK; production
 provider/protocol/storage are unchanged. See [SEC-003](security/SEC-003.md).
 Next: manually collect/review five warm and five cold C6 runs using that report.
 RF/ADC/sleep entropy integration and protected-key validation remain pending;
-permanent identities remain NO-GO. SEC-002 remains the last completed milestone.
+permanent identities remain NO-GO. SEC-002 remains the last completed security
+baseline milestone.
 
 SEC-002 validates isolated **ESP-IDF 5.5.6 / Mbed TLS 3.6.7 as the C6
 development baseline: GO**. Official source/fix ancestry, actual compilation
@@ -112,6 +128,12 @@ cryptography, relay implementation, protocol or mailbox format.
 
 ## Verified functionality
 
+- CI fixes: persisted pre-network ciphertext snapshot, exact captured retry
+  frames/prefixes, ID/multiplicity matching and unchanged mailbox after ACK replay;
+  C11 sensitive-marker absence scan. Verified on macOS/Apple Clang, not Linux/GCC.
+- Relay P1: 226-frame slow TCP replay after restart; bounded partial writes,
+  blocked/interrupted sends, mid-frame disconnect/reconnect, 512 cached/live
+  deliveries and legacy retirement. Host-only; no provisioning or hardware run.
 - SEC-002: clean C6 firmware/crypto builds (0x2e390 / 0x3b810), normal host
   16/16, ASan/UBSan 16/16 (vendor also instrumented), simulator 4/4 using the
   candidate SDK's actual Mbed TLS fork and isolated Python. Hardware/identity
@@ -206,9 +228,9 @@ receive effects before consume; replay archive persists before active-slot reuse
   claimed. Legacy outgoing text never stored by v1 cannot be recovered and is
   explicitly marked unavailable at migration. Local reads are not peer receipts.
 - Active mailbox capacity is eight per direction; history retains up to 1024
-  total IDs/device, with explicit FULL and no eviction. Relay cache/output replay
-  limits are independent. At 100 messages/direction its 400 frames fit the default
-  512-entry cache; unlimited lifetime relay replay/GC is not implemented.
+  total IDs/device, with explicit FULL and no eviction. Relay cached delivery now
+  streams incrementally through its bounded output buffer. At 100 messages/direction
+  its 400 frames fit the default 512-entry cache; cache GC is not implemented.
 
 - The 3C.1 channel requires an ordered live connection and closes on replay,
   reordering, authentication failure or disconnect; it cannot deliver offline.
@@ -296,6 +318,10 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
+Next verification: rerun GitHub Actions GCC/Clang and Linux simulator jobs after
+the CI test fixes are pushed by the user. Local `/usr/bin/gcc` is Apple Clang,
+not an independent GNU GCC result; no Linux runtime is installed.
+
 Plan 3C.3 production identity loading/rotation, relay authentication/TLS and
 safe retention/epoch design. Desktop durable history/consumption is implemented;
 the software baseline is now validated. Next test runtime entropy and NVS
@@ -307,6 +333,18 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-03 — CI test correctness/portability fixes, local verification complete:
+host 17/17, simulator 4/4, three repeated E2EE suites and history sanitizer PASS.
+Linux/GNU GCC validation remains pending in CI. Production code is unchanged.
+
+### Previous relay increment
+
+2026-11-03 — Relay P1 incremental replay/backpressure: 10/10 relay tests and
+2/2 selected relay/C-transport CTest entries PASS. Cache GC/authentication remain
+pending. No protocol, state-format, crypto or firmware changes.
+
+### Previous security baseline
 
 2026-11-02 — SEC-002 isolated ESP-IDF 5.5.6 validation: development GO for C6,
 permanent identities NO-GO. Source/fix/config/link evidence and clean builds

@@ -55,6 +55,13 @@ sender shutdown, relay restart, saved receipt recovery with both peers offline
 at different times, three-byte socket calls, a fragmenting/disconnecting proxy,
 forged frames, backpressure, full inbox/outbox and consumer restart:
 
+The fragmented-disconnect test snapshots persisted outbox ciphertext before
+networking. `envelopes()` only reads mailbox bytes; it never encrypts. Relay
+arrival order may differ from mailbox slot order after a round-robin retry, so
+the test matches IDs and multiplicity while requiring exact full-frame bytes.
+Proxy captures also check every complete attempt and interrupted frame prefix
+against the snapshot; mailbox bytes must remain unchanged through ACK replay.
+
 ```sh
 ctest --test-dir build/tests -R encrypted_tcp_end_to_end --output-on-failure
 ```

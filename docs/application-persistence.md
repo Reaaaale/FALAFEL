@@ -180,10 +180,12 @@ A volatile command not yet confirmed STORED can still be lost on abrupt kill;
 the crash guarantee starts at the durable transaction boundary, under the POSIX
 fsync/atomic-replacement and intact-key assumptions, not arbitrary media failure.
 
-The unchanged relay has independent limits: default 512 cached frames, with no
+The relay has independent limits: default 512 cached frames, with no
 GC; 100 messages in each direction produce 400 DATA/RECEIPT frames. Its per-client
-replay/output buffer is 65536 bytes. Larger workloads need relay capacity/replay
-planning; no unlimited relay availability or network epoch protocol is claimed.
+output buffer is 65536 bytes. Cached replay now waits incrementally for output
+space instead of requiring the whole backlog to fit. Larger workloads still need
+cache-capacity planning; no unlimited relay availability or network epoch protocol
+is claimed. See `../relay/README.md` for the relay-only regression coverage.
 
 ## Verified resource use and tests
 

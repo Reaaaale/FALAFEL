@@ -14,8 +14,10 @@ Pending records are removed only after a valid device ACK is durably processed.
 
 Defaults are 512 pending and 1,024 completed records. At the pending limit the
 relay sends no acceptance and evicts nothing, allowing the sender to retry.
-Clients have bounded output buffers and slow clients are disconnected without
-removing their durable pending events. Corrupt or unsupported state prevents
+Clients have bounded output buffers. Cached deliveries wait for buffer space
+instead of disconnecting slow readers; socket errors still close the connection
+without removing durable pending events. Transient legacy ACK output retains
+its existing overflow/disconnect policy. Corrupt or unsupported state prevents
 startup instead of causing a silent reset.
 
 
@@ -39,8 +41,8 @@ Unlike legacy completed records, encrypted data/receipt entries are retained
 without automatic eviction. Default capacity is 512 total pending entries;
 configure enough space for data and receipts (up to 32 for legacy fixed eight-ID
 mailboxes; 100 messages in each direction from upgraded simulators use 400 frames). Full means backpressure and continued sender
-outbox retry, not loss or completion. Slow sockets still use the existing bounded
-buffers and disconnect policy. Metadata is visible and active attackers can deny
+outbox retry, not loss or completion. Slow sockets use incremental cached delivery
+within the existing bounded output buffer. Metadata is visible and active attackers can deny
 service or fill/poison the cache; TLS/authenticated routing and safe compaction
 remain future work. See `docs/protocol.md` and
 `experiments/desktop-mailbox/README.md` for formats and test commands.
@@ -50,8 +52,25 @@ The LVGL simulator uses the existing v2 protocol without relay changes. See
 
 The simulator's local archive/slot-reuse migration does not change relay frames.
 Its eight active slots are reusable, so cached frame counts now grow beyond the
-legacy workload. The default 512 cache entries and 65536-byte client output/replay
-buffer are independent limits; neither relay GC nor paginated replay is added by
-local history. Plan/test those limits before larger deployments. See
+legacy workload. The default 512 cache entries and 65536-byte client output
+buffer are independent limits. Since 2026-11-03, replay is incremental: each client
+keeps ordered, coalesced pending-record keys, and frames enter the output buffer
+only when they fit. Successful partial writes resume this work. Live cached
+deliveries use the same path; repeated requests for a still-waiting key coalesce.
+Legacy records retired before buffering are skipped. Reconnect rebuilds delivery
+from durable cache, including any frame interrupted mid-write. No disk format,
+frame, ACK or cache-retention policy changes. Relay GC remains unimplemented. See
 `docs/application-persistence.md` for retained-ID policy and the verified 100-per-
 direction workload.
+
+## Relay regression tests
+
+Run `PYTHONDONTWRITEBYTECODE=1 python3 -X dev test/test_relay.py` from the repository
+root (Python standard library and local sockets only). On 2026-11-03 all 10 tests
+passed, including the six existing cases. Two new 226-maximum-DATA regressions
+failed on the original relay with a disconnected recipient, then passed after
+the fix. Coverage includes a slow real TCP reader after relay restart, 37-byte
+partial writes, would-block/interrupted writes, a broken pipe mid-frame and
+reconnect, 512 cached/live frames with coalesced waiting retries, legacy ACK
+retirement and removal of write interest after draining. Opaque v2 fixtures test
+relay routing/framing; they do not test endpoint cryptography or provision keys.

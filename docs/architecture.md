@@ -1,8 +1,14 @@
 # Falafel project status
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
 ## Current status
+
+Relay cached delivery now uses ordered per-client pending-record keys and fills
+the bounded output buffer incrementally after socket writes. The P1 226-frame
+replay disconnect is fixed and host-verified (10 relay tests plus C transport
+integration); GC, authentication and wire/state formats are unchanged. See
+[relay behavior and tests](../relay/README.md).
 
 SEC-003 **software preparation is verified; hardware validation NOT RUN / OPEN**.
 The existing C6 crypto experiment now exercises the real provider, temporary
@@ -14,7 +20,8 @@ callback instrumentation forwards successful calls to the real SDK; production
 provider/protocol/storage are unchanged. See [SEC-003](security/SEC-003.md).
 Next: manually collect/review five warm and five cold C6 runs using that report.
 RF/ADC/sleep entropy integration and protected-key validation remain pending;
-permanent identities remain NO-GO. SEC-002 remains the last completed milestone.
+permanent identities remain NO-GO. SEC-002 remains the last completed security
+baseline milestone.
 
 SEC-002 validates isolated **ESP-IDF 5.5.6 / Mbed TLS 3.6.7 as the C6
 development baseline: GO**. Official source/fix ancestry, actual compilation
@@ -203,9 +210,9 @@ receive effects before consume; replay archive persists before active-slot reuse
   claimed. Legacy outgoing text never stored by v1 cannot be recovered and is
   explicitly marked unavailable at migration. Local reads are not peer receipts.
 - Active mailbox capacity is eight per direction; history retains up to 1024
-  total IDs/device, with explicit FULL and no eviction. Relay cache/output replay
-  limits are independent. At 100 messages/direction its 400 frames fit the default
-  512-entry cache; unlimited lifetime relay replay/GC is not implemented.
+  total IDs/device, with explicit FULL and no eviction. Relay cached delivery now
+  streams incrementally through its bounded output buffer. At 100 messages/direction
+  its 400 frames fit the default 512-entry cache; cache GC is not implemented.
 
 - The 3C.1 channel requires an ordered live connection and closes on replay,
   reordering, authentication failure or disconnect; it cannot deliver offline.
@@ -304,6 +311,12 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-03 — Relay P1 incremental replay/backpressure. The 226-frame regressions
+failed before the fix; 10/10 relay tests and 2/2 selected relay/C-transport CTest
+entries now pass. No protocol, ACK, persistent-format or retention change.
+
+### Previous security baseline
 
 2026-11-02 — SEC-002 isolated ESP-IDF 5.5.6 validation: development GO for C6,
 permanent identities NO-GO. Source/fix/config/link evidence and clean builds

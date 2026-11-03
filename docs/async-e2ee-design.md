@@ -490,5 +490,7 @@ direction, 41 crash boundaries, archive/full active capacity, corruption,
 idempotence/exact replay, controller migration/errors, and real two-window
 100-per-direction restoration with read/delivery state and relay reconnect.
 Root normal and ASan/UBSan regressions passed 15/15 each. Startup and test commands
-are in `simulator/README.md`. The relay still has independent cached-frame and
-per-client replay-buffer limits; no unlimited retention/liveness claim is added.
+are in `simulator/README.md`. The relay still has a finite cached-frame limit;
+incremental delivery now streams cached replay through the bounded per-client
+output buffer. No unlimited retention/liveness claim is added. See
+`../relay/README.md` for the 2026-11-03 relay-only verification.

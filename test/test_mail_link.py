@@ -45,6 +45,7 @@ class Proxy:
         self.stop = False
         self.dropped = False
         self.error = None
+        self.uploads = []
         self.thread = threading.Thread(target=self.run)
         self.thread.start()
     def run(self):
@@ -56,6 +57,8 @@ class Proxy:
                     continue
                 with client, socket.create_connection(('127.0.0.1', self.target)) as upstream:
                     uploaded = 0
+                    upload = bytearray()
+                    self.uploads.append(upload)
                     while not self.stop:
                         ready, _, _ = select.select([client, upstream], [], [], .05)
                         done = False
@@ -65,6 +68,7 @@ class Proxy:
                                 done = True
                                 break
                             if source is client:
+                                upload.extend(data)
                                 uploaded += len(data)
                                 if not self.dropped and uploaded > 50:
                                     self.dropped = True
@@ -138,6 +142,7 @@ class Integration(unittest.TestCase):
         except (FileNotFoundError, json.JSONDecodeError):
             return []
     def envelopes(self, own):
+        # Read exact persisted outbox bytes in slot order; never encrypt here.
         data = (self.root/f'{own}.mail').read_bytes()
         return [data[72+i*517+5:72+i*517+5+int.from_bytes(data[73+i*517:75+i*517], 'big')]
                 for i in range(8) if data[72+i*517]]
@@ -202,10 +207,16 @@ class Integration(unittest.TestCase):
         self.assertEqual(len(glob.glob(str(self.root/'2.effect-*')))//2, 2)  # data + lock
         self.assert_ciphertext_only()
     def test_online_fragmented_disconnect_retry_and_duplicate_receipts(self):
+        # Freeze the expected ciphertext before networking or any retries.
+        self.run_peer(1, ms=0, count=2)
+        original = self.envelopes(1)
+        expected = {env[70:86]: self.frame(1, 4, env) for env in original}
+        self.assertEqual(len(original), 2)
+        self.assertEqual(len(expected), 2)
         proxy = Proxy(self.port)
         try:
             b = self.spawn(2, ms=3200)
-            a = self.spawn(1, ms=2800, count=2, endpoint=proxy.port)
+            a = self.spawn(1, ms=2800, endpoint=proxy.port)
             ar = self.result(a); br = self.result(b)
             self.assertTrue(proxy.dropped)
             self.assertIsNone(proxy.error)
@@ -215,7 +226,39 @@ class Integration(unittest.TestCase):
             proxy.close()
         records = self.records()
         data = [bytes.fromhex(r['frame']) for r in records if r['kind'] == 4]
-        self.assertEqual([f[30:] for f in data], self.envelopes(1))
+        # Reconnect retains the round-robin cursor: arrival order need not match
+        # mailbox slot order. IDs, multiplicity and every frame byte must match.
+        self.assertCountEqual([f[12:28] for f in data], list(expected))
+        for frame in data:
+            self.assertEqual(frame, expected[frame[12:28]])
+        self.assertEqual(self.envelopes(1), original)
+        # Inspect attempts too, not just the relay's deduplicated cache. Complete
+        # retries must be byte-identical; the interrupted attempt is an exact
+        # prefix of one original length-prefixed frame.
+        encoded = [struct.pack('>I', len(f)) + f for f in expected.values()]
+        complete_ids, partial = [], 0
+        for upload in proxy.uploads:
+            hello, separator, remaining = bytes(upload).partition(b'\n')
+            self.assertEqual((hello, separator), (b'HELLO2 1 2', b'\n'))
+            while remaining:
+                if len(remaining) < 4:
+                    self.assertTrue(any(f.startswith(remaining) for f in encoded))
+                    partial += 1
+                    break
+                size = struct.unpack('>I', remaining[:4])[0]
+                self.assertIn(size, [len(f) for f in expected.values()])
+                if len(remaining) < size + 4:
+                    self.assertTrue(any(f.startswith(remaining) for f in encoded))
+                    partial += 1
+                    break
+                frame = remaining[4:4+size]
+                self.assertIn(frame[12:28], expected)
+                self.assertEqual(frame, expected[frame[12:28]])
+                complete_ids.append(frame[12:28])
+                remaining = remaining[4+size:]
+        self.assertGreaterEqual(partial, 1)
+        for mid in expected:
+            self.assertIn(mid, complete_ids)
         receipts = [bytes.fromhex(r['frame']) for r in records if r['kind'] == 5]
         # Separate B socket replays valid ACKs in reverse order, twice, to restarted A.
         a = self.spawn(1, ms=500)
@@ -224,6 +267,7 @@ class Integration(unittest.TestCase):
         ar = self.result(a)
         self.assertEqual(ar['out'][:2], [2, 2])
         self.assertGreaterEqual(ar['duplicates'], 2)
+        self.assertEqual(self.envelopes(1), original)
         self.assert_ciphertext_only()
     def test_invalid_payload_unpaired_sender_and_false_ack(self):
         self.run_peer(1, ms=0, count=2)

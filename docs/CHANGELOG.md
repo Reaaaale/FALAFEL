@@ -1,5 +1,52 @@
 # Falafel development changelog
 
+## 2026-11-03 — CI encrypted retry comparison and C11 history portability
+
+- Changed only `test/test_mail_link.py`, `test/test_history.c` and relevant test
+  documentation/status. Existing relay-fix working-tree changes were preserved.
+- `envelopes()` reads saved ciphertext; it does not generate random ciphertext.
+  The failed CI comparison incorrectly required relay arrival order to match
+  mailbox slot order, which round-robin retry after a partial disconnect need
+  not preserve. Snapshot ciphertext before networking, compare exact frames by
+  ID with multiplicity checks, inspect complete/partial proxy upload attempts,
+  and require unchanged mailbox envelopes through restart/duplicate receipts.
+- Replace nonstandard `memmem` with a bounded binary `memcmp` scan over every
+  valid offset. Keep the same sensitive marker and plaintext-absence assertion;
+  no feature-macro workaround or protocol/crypto/framing/persistence change.
+- Local Apple Clang 21: host Debug ASan/UBSan CTest 17/17 (including Noise interop)
+  and simulator Debug CTest 4/4 with SDL dummy video PASS. Direct E2EE suite
+  5/5 PASS; CTest E2EE repeated three times PASS. Fresh history build with
+  ASan/UBSan across test/runtime/Mbed TLS: 1/1 PASS. C11 `-pedantic -Wall
+  -Wextra -Werror -Werror=implicit-function-declaration` syntax check, Python
+  compile and `git diff --check` PASS. The original targeted test passed once
+  locally; the Linux CI failure was not reproduced on this macOS scheduler.
+- GNU GCC and a Linux/container runtime are not installed; `/usr/bin/gcc` is
+  Apple Clang. GCC/Linux CI rerun remains pending, not claimed PASS. Socket
+  tests ran with approval outside the sandbox using disposable temporary fixture
+  identities; no hardware, permanent identity, dependencies, commit or push.
+
+## 2026-11-03 — Relay P1 incremental replay and backpressure
+
+- Components: `relay/falafel_relay.py`, `test/test_relay.py`, relay/protocol and
+  relevant architecture, status, persistence, simulator and main documentation.
+- Fixed registration replay disconnecting recipients at 226 maximum v2 DATA
+  frames (65,540 framed bytes versus the 65,536-byte output limit). Ordered,
+  coalesced per-client keys defer cached deliveries until complete frames fit;
+  successful partial writes refill output. Live cached delivery shares this path.
+  Reconnect rebuilds from durable state; retired legacy records are skipped.
+- No protocol, ACK, JSON format, crypto, firmware or cache-retention/GC change.
+  Direct transient legacy ACK overflow retains its prior disconnect policy.
+- Red/green verification: deterministic socket-pair and real TCP slow-reader
+  226-frame tests both failed on the original relay, then passed. Full relay
+  suite: 10/10 PASS (six existing, four new), including blocked/interrupted and
+  37-byte partial writes, broken pipe/reconnect, 512 cached/live frames and
+  waiting retry coalescing, legacy ACK retirement and drained selector interest.
+- `python3 -X dev test/test_relay.py` PASS; selected `relay_integration` and
+  `transport_end_to_end` CTest entries 2/2 PASS using the existing ASan/UBSan host
+  transport executable. Python compile checks and `git diff --check` PASS.
+  Socket tests required execution outside the sandbox after bind was denied.
+  No dependencies installed, identity provisioning, hardware, commit or push.
+
 ## 2026-11-03 — SEC-003 preparation revalidation; hardware still OPEN
 
 - Found and reused the existing SEC-003 experiment, suite, probe and log tools;

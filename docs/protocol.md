@@ -104,6 +104,13 @@ forwarded only after file and parent-directory fsync/atomic replacement succeed.
 The version-2 JSON *storage* schema is independent of transport version, and v1
 pending/completed records remain loadable in legacy/mixed mode.
 
+Cached delivery is incremental within the 65,536-byte per-client output buffer.
+The relay keeps ordered pending-record keys per connection, coalesces requests
+for keys still waiting, and buffers a complete frame only when it fits. Partial
+socket writes resume buffering; reconnect reconstructs replay from durable state.
+Legacy records removed by ACK before buffering are skipped. This changes no wire
+format, receipt semantics, persistent state or cache retention/GC policy.
+
 The desktop adapter reuses its bounded buffers, asynchronous DNS, partial
 read/write handling and reconnect loop. A queued frame is volatile; all durable
 recovery comes from the mailbox/relay cache. Connection/handshake and stalled
