@@ -84,3 +84,32 @@ monotonic counter, Secure Enclave anti-rollback primitive, or server witness.
 The generation field supports detection only when compared with a separately
 trusted value, which is not yet stored. Therefore rollback resistance is not a
 security guarantee of 3B.3.
+
+## Live authenticated channel (Milestone 3C.1 prototype)
+
+`falafel_e2ee` uses `Noise_IK_25519_AESGCM_SHA256`: the initiator knows the
+responder's paired static public key before the handshake, and the responder
+checks the decrypted initiator static key against its own saved peer. Noise
+Split provides independent directional cipher states. Each record contains an
+authenticated big-endian 64-bit sequence number followed by ciphertext and tag.
+Only the next expected record is accepted; a duplicate, replay, out-of-order
+record, authentication error, or explicit close permanently ends the session.
+Counters are in memory, never resumed, and a reconnect runs a fresh handshake.
+Records are limited to 4096 plaintext bytes. The caller must close the session
+on disconnection and serialize calls per session.
+
+This is a live ordered channel, not an asynchronous or offline store-and-forward
+message protocol. It does not protect against deletion or withholding by a
+relay; no application-v1 integration exists. The 3B.3 persistent metadata
+rollback limitation remains.
+
+To exercise pairing, Keychain reload, two independent processes, and two live
+encrypted sessions, build as above and run:
+
+```sh
+./build/desktop-pairing/pairing_persistence_harness
+```
+
+The harness also attempts a connection from a third, unpaired identity and
+requires the responder to reject it. `test_e2ee` independently exercises the
+actual Noise nonce exhaustion boundary without adding a production test hook.

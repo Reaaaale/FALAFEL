@@ -1,4 +1,5 @@
 #include "desktop_transport.h"
+#include "falafel_mail_link.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -194,13 +195,15 @@ static bool queue_bytes(desktop_transport_t *transport, const uint8_t *data,
     memcpy(transport->output, data, length);
     transport->output_offset = 0U;
     transport->output_length = length;
+    transport->progress_deadline_ms = monotonic_ms() + CONNECT_TIMEOUT_MS;
     return true;
 }
 
 static void queue_handshake(desktop_transport_t *transport)
 {
     char hello[80];
-    int length = snprintf(hello, sizeof(hello), "HELLO %u %u\n",
+    int length = snprintf(hello, sizeof(hello), "%s %u %u\n",
+                          transport->on_frame ? "HELLO2" : "HELLO",
                           transport->device_id, transport->peer_id);
 
     if (length <= 0 || (size_t)length >= sizeof(hello) ||
@@ -214,10 +217,12 @@ static void write_pending(desktop_transport_t *transport)
     while (transport->output_offset < transport->output_length) {
         ssize_t count = send(transport->fd,
                              transport->output + transport->output_offset,
-                             transport->output_length - transport->output_offset,
+                             (transport->io_chunk && transport->io_chunk < transport->output_length - transport->output_offset) ?
+                             transport->io_chunk : transport->output_length - transport->output_offset,
                              MSG_NOSIGNAL);
         if (count > 0) {
             transport->output_offset += (size_t)count;
+            transport->progress_deadline_ms = monotonic_ms() + CONNECT_TIMEOUT_MS;
             continue;
         }
         if (count < 0 && errno == EINTR) {
@@ -243,13 +248,15 @@ static void read_available(desktop_transport_t *transport)
         ssize_t count;
 
         if (available == 0U) {
-            disconnect_transport(transport);
-            return;
+            /* A large replay may contain many complete bounded frames. Parse
+             * this batch before reading more instead of dropping valid data. */
+            break;
         }
         count = recv(transport->fd,
                      transport->input + transport->input_length,
-                     available, 0);
+                     (transport->io_chunk && transport->io_chunk < available) ? transport->io_chunk : available, 0);
         if (count > 0) {
+            transport->progress_deadline_ms = monotonic_ms() + CONNECT_TIMEOUT_MS;
             transport->input_length += (size_t)count;
             continue;
         }
@@ -274,7 +281,7 @@ static void read_available(desktop_transport_t *transport)
 
         memcpy(&network_size, transport->input, sizeof(network_size));
         size = ntohl(network_size);
-        if (size < FALAFEL_EVENT_WIRE_HEADER_SIZE ||
+        if (size < (transport->on_frame ? FALAFEL_MAIL_FRAME_HEADER : FALAFEL_EVENT_WIRE_HEADER_SIZE) ||
             size > FALAFEL_MAX_EVENT_SIZE) {
             disconnect_transport(transport);
             return;
@@ -282,11 +289,15 @@ static void read_available(desktop_transport_t *transport)
         if (transport->input_length < (size_t)size + 4U) {
             return;
         }
-        if (!falafel_event_deserialize(transport->input + 4U, size, &event)) {
+        if (transport->on_frame) {
+            if (!transport->on_frame(transport->user_data, transport->input + 4U, size)) {
+                disconnect_transport(transport); return;
+            }
+        } else if (!falafel_event_deserialize(transport->input + 4U, size, &event)) {
             disconnect_transport(transport);
             return;
         }
-        if (transport->on_event != NULL) {
+        if (!transport->on_frame && transport->on_event != NULL) {
             transport->on_event(transport->user_data, &event);
         }
         memmove(transport->input, transport->input + 4U + size,
@@ -297,6 +308,11 @@ static void read_available(desktop_transport_t *transport)
 
 void desktop_transport_poll(desktop_transport_t *transport)
 {
+    if (transport->state == DESKTOP_TRANSPORT_HANDSHAKE &&
+        monotonic_ms() >= transport->connect_deadline_ms) disconnect_transport(transport);
+    if (transport->state == DESKTOP_TRANSPORT_CONNECTED &&
+        (transport->output_length || transport->input_length) &&
+        monotonic_ms() >= transport->progress_deadline_ms) disconnect_transport(transport);
     if (transport->state == DESKTOP_TRANSPORT_DISCONNECTED) {
         start_resolution(transport);
     }
@@ -622,4 +638,17 @@ bool desktop_allocate_event_id(const char *path, const falafel_app_t *app,
     ++*next_sequence;
     *event_id = ((uint64_t)device_id << 32) | *next_sequence;
     return true;
+}
+
+void desktop_transport_init_frames(desktop_transport_t *t, const char *host, uint16_t port,
+                                   uint32_t own, uint32_t peer, desktop_frame_fn cb, void *u)
+{
+    desktop_transport_init(t,host,port,own,peer,NULL,u); t->on_frame=cb;
+}
+bool desktop_transport_send_frame(void *u, const uint8_t *p, size_t n)
+{
+    desktop_transport_t *t=u; uint8_t wire[290]; uint32_t size;
+    if(!t->on_frame || !desktop_transport_is_connected(t) || !p || n<30 || n>286) return false;
+    size=htonl((uint32_t)n); memcpy(wire,&size,4); memcpy(wire+4,p,n);
+    return queue_bytes(t,wire,n+4);
 }

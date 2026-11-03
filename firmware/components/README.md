@@ -1,10 +1,15 @@
 # Firmware components
 
-Future ESP-IDF adapters belong here: display/touch, network, storage, camera,
-and power. They will be added only when their requirements and the official
-board documentation are available.
+`falafel_persistence` compiles unchanged shared crypto, offline envelope,
+mailbox and history modules. `falafel_storage` implements their callbacks on a
+dedicated NVS partition. See [storage design](../../docs/embedded-storage.md) and
+[C6 build commands](../README.md). Host recovery tests and C6 cross-build pass;
+physical power-cut/GC and S3 validation remain pending. Embedded crypto is not
+approved for permanent identities.
 
-The shared application and GUI code stays outside this directory and will be
-wired into ESP-IDF as a component when LVGL and the board display port are
-introduced.
+Future adapters include display/touch, networking and power; no board-specific
+driver is assumed by storage.
+
+The shared GUI is not integrated into firmware. Boot only probes an existing
+namespace: it does not provision identities or consume messages.
 

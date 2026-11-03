@@ -1,32 +1,22 @@
 #include "falafel_gui_internal.h"
 
-typedef struct {
-    const char *name;
-    const char *line;
-    const char *code;
-    const lv_image_dsc_t *image;
-} personality_view_t;
-
-static const personality_view_t personalities[FALAFEL_PERSONALITY_COUNT] = {
-    {"TAXI", "Dove ti porto?", "NYC CAB / 01", &falafel_asset_taxi},
-    {"CUOCO", "Cosa bolle in pentola?", "KITCHEN UNIT / 02", &falafel_asset_cook},
-    {"PROMEMORIA", "Te lo segno. Stavolta.", "DON'T FORGET / 03", &falafel_asset_reminder},
-};
-
-static lv_obj_t *title_label, *line_label, *code_label;
-static lv_obj_t *art_stage, *art_image;
-static lv_obj_t *markers[FALAFEL_PERSONALITY_COUNT], *messages_label;
+static const char *names[FALAFEL_PERSONALITY_COUNT] = {"Taxi", "Cuoco", "Promemoria"};
+static lv_obj_t *title_label, *art_stage, *character_image, *message_button;
+static lv_timer_t *rotation_timer;
+static falafel_personality_t pending_personality;
+static lv_obj_t *markers[FALAFEL_PERSONALITY_COUNT];
 
 enum {
     HOME_SWIPE_MIN_DISTANCE = 50,
     HOME_SWIPE_AXIS_BIAS_PERCENT = 125,
-    HOME_TRANSITION_MS = 160,
+    HOME_FRAME_MS = 30,
 };
 
 typedef struct {
     lv_point_t start;
     bool pressed;
     bool consumed;
+    bool blocked_at_press;
 } home_pointer_gesture_t;
 
 static home_pointer_gesture_t pointer_gesture;
@@ -35,53 +25,64 @@ static void messages_clicked(lv_event_t *event)
 {
     (void)event;
     if (pointer_gesture.consumed) return;
-    falafel_gui_show_messages();
-    if (falafel_gui.callbacks.on_messages_opened != NULL)
-        falafel_gui.callbacks.on_messages_opened(falafel_gui.callbacks.user_data);
+    falafel_gui_open_messages();
 }
 
-static void composer_clicked(lv_event_t *event)
+/* The timer only switches compressed descriptors. LVGL draws/decodes one PNG
+ * at a time with its image cache disabled; there is no playback loop or sleep. */
+static void stop_rotation(void)
 {
-    (void)event;
-    if (!pointer_gesture.consumed) falafel_gui_show_composer();
+    lv_timer_pause(rotation_timer);
+    falafel_gui.personality_animating = false;
+    lv_image_set_src(character_image, &falafel_asset_character);
 }
 
-static void animation_set_translate_x(void *object, int32_t value)
+static void rotation_step(lv_timer_t *timer)
 {
-    lv_obj_set_style_translate_x((lv_obj_t *)object, value, 0);
-}
-
-static void animate_personality(int32_t from_x)
-{
-    lv_anim_t animation;
-    lv_anim_init(&animation);
-    lv_anim_set_var(&animation, art_stage);
-    lv_anim_set_exec_cb(&animation, animation_set_translate_x);
-    lv_anim_set_values(&animation, from_x, 0);
-    lv_anim_set_duration(&animation, HOME_TRANSITION_MS);
-    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
-    lv_anim_start(&animation);
+    (void)timer;
+    if (++falafel_gui.rotation_frame < FALAFEL_ROTATION_FRAME_COUNT) {
+        lv_image_set_src(character_image,
+                         &falafel_asset_rotation[falafel_gui.rotation_frame]);
+        return;
+    }
+    stop_rotation();
+    falafel_gui.personality = pending_personality;
+    falafel_home_refresh();
+    if (falafel_gui.callbacks.on_personality_changed != NULL)
+        falafel_gui.callbacks.on_personality_changed(pending_personality, falafel_gui.callbacks.user_data);
 }
 
 static bool select_personality(falafel_personality_t selected)
 {
-    if (selected >= FALAFEL_PERSONALITY_COUNT || selected == falafel_gui.personality) return false;
-    int32_t direction = selected > falafel_gui.personality ? 1 : -1;
-    falafel_gui.personality = selected;
-    falafel_home_refresh();
-    animate_personality(direction * 34);
-    if (falafel_gui.callbacks.on_personality_changed != NULL)
-        falafel_gui.callbacks.on_personality_changed(selected, falafel_gui.callbacks.user_data);
+    if (falafel_gui.personality_animating || selected >= FALAFEL_PERSONALITY_COUNT ||
+        selected == falafel_gui.personality) return false;
+    pending_personality = selected;
+    falafel_gui.rotation_frame = 0;
+    falafel_gui.personality_animating = true;
+    lv_image_set_src(character_image, &falafel_asset_rotation[0]);
+    lv_timer_reset(rotation_timer);
+    lv_timer_resume(rotation_timer);
     return true;
 }
 
 bool falafel_gui_set_personality_remote(falafel_personality_t selected)
 {
-    if (selected >= FALAFEL_PERSONALITY_COUNT || selected == falafel_gui.personality) return false;
+    if (selected >= FALAFEL_PERSONALITY_COUNT) return false;
+    /* Synchronized state supersedes a pending local choice, even if it equals
+     * the current personality. Never emit a stale local callback afterwards. */
+    if (falafel_gui.personality_animating) stop_rotation();
+    if (selected == falafel_gui.personality) return false;
     falafel_gui.personality = selected;
     falafel_home_refresh();
-    animate_personality(0);
     return true;
+}
+
+static void home_deleted(lv_event_t *event)
+{
+    (void)event;
+    lv_timer_delete(rotation_timer);
+    rotation_timer = NULL;
+    falafel_gui.personality_animating = false;
 }
 
 bool falafel_gui_next_personality(void)
@@ -106,6 +107,7 @@ static void home_pointer_event(lv_event_t *event)
         lv_indev_get_point(indev, &pointer_gesture.start);
         pointer_gesture.pressed = true;
         pointer_gesture.consumed = false;
+        pointer_gesture.blocked_at_press = falafel_gui.personality_animating;
         return;
     }
     if (code == LV_EVENT_PRESS_LOST) {
@@ -126,6 +128,7 @@ static void home_pointer_event(lv_event_t *event)
         abs_dx * 100 < abs_dy * HOME_SWIPE_AXIS_BIAS_PERCENT) return;
 
     pointer_gesture.consumed = true;
+    if (pointer_gesture.blocked_at_press) return;
     if (dx < 0) falafel_gui_next_personality();
     else falafel_gui_previous_personality();
 }
@@ -140,79 +143,53 @@ static void add_pointer_handler_to_tree(lv_obj_t *object)
         add_pointer_handler_to_tree(lv_obj_get_child(object, (int32_t)i));
 }
 
-static lv_obj_t *create_action_button(lv_obj_t *parent, const char *text, uint32_t color)
-{
-    lv_obj_t *button = lv_button_create(parent);
-    lv_obj_set_size(button, 136, 52);
-    falafel_theme_style_button(button, color);
-    lv_obj_t *label = falafel_theme_create_label(button, text, &lv_font_montserrat_14,
-                                                  color == FALAFEL_COLOR_NIGHT
-                                                      ? FALAFEL_COLOR_CREAM
-                                                      : FALAFEL_COLOR_NIGHT);
-    lv_obj_center(label);
-    return button;
-}
-
 lv_obj_t *falafel_home_create(lv_obj_t *parent)
 {
     lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, 320, 432);
-    lv_obj_align(root, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, 466, 466);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
-    code_label = falafel_theme_create_label(root, "NYC CAB / 01", &lv_font_montserrat_12,
-                                             FALAFEL_COLOR_HORN_BLUE);
-    lv_obj_align(code_label, LV_ALIGN_TOP_LEFT, 18, 15);
-    title_label = falafel_theme_create_label(root, "TAXI", &lv_font_montserrat_28, FALAFEL_COLOR_NIGHT);
-    lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 18, 36);
-    line_label = falafel_theme_create_label(root, "Dove ti porto?", &lv_font_montserrat_16,
-                                            FALAFEL_COLOR_NIGHT);
-    lv_obj_align(line_label, LV_ALIGN_TOP_LEFT, 19, 72);
-
     art_stage = lv_obj_create(root);
-    lv_obj_set_size(art_stage, 284, 178);
-    lv_obj_align(art_stage, LV_ALIGN_TOP_MID, 0, 102);
-    lv_obj_set_style_bg_color(art_stage, lv_color_hex(FALAFEL_COLOR_HORN_BLUE), 0);
-    lv_obj_set_style_border_color(art_stage, lv_color_hex(FALAFEL_COLOR_NIGHT), 0);
-    lv_obj_set_style_border_width(art_stage, 3, 0);
-    lv_obj_set_style_radius(art_stage, 10, 0);
-    lv_obj_set_style_pad_all(art_stage, 0, 0);
+    lv_obj_remove_style_all(art_stage);
+    lv_obj_set_size(art_stage, 320, 320);
+    lv_obj_align(art_stage, LV_ALIGN_CENTER, 0, 4);
     lv_obj_clear_flag(art_stage, LV_OBJ_FLAG_SCROLLABLE);
+    character_image = lv_image_create(art_stage);
+    lv_obj_t *image = character_image;
+    lv_image_set_src(image, &falafel_asset_character);
+    /* LVGL scale unit is 256. Uniform fit in a 320px square, no cropping. */
+    uint32_t edge = falafel_asset_character.header.w > falafel_asset_character.header.h
+        ? falafel_asset_character.header.w : falafel_asset_character.header.h;
+    lv_image_set_scale(image, (uint32_t)(320u * 256u / edge));
+    lv_obj_center(image);
 
-    lv_obj_t *corner = lv_obj_create(art_stage);
-    lv_obj_set_size(corner, 22, 7);
-    lv_obj_align(corner, LV_ALIGN_TOP_RIGHT, -10, 10);
-    lv_obj_set_style_bg_color(corner, lv_color_hex(FALAFEL_COLOR_YELLOW), 0);
-    lv_obj_set_style_border_width(corner, 0, 0);
-    lv_obj_set_style_radius(corner, 0, 0);
-    lv_obj_clear_flag(corner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *notification = lv_button_create(root);
+    message_button = notification;
+    lv_obj_set_size(notification, 44, 40);
+    lv_obj_align(notification, LV_ALIGN_TOP_MID, 0, 94);
+    falafel_theme_style_button(notification, FALAFEL_COLOR_ACCENT);
+    lv_obj_set_style_radius(notification, 14, 0);
+    lv_obj_set_style_border_width(notification, 0, 0);
+    lv_obj_t *icon = falafel_theme_create_label(notification, LV_SYMBOL_ENVELOPE,
+                                               &lv_font_montserrat_18, FALAFEL_COLOR_CREAM);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(notification, messages_clicked, LV_EVENT_CLICKED, NULL);
 
-    art_image = lv_image_create(art_stage);
-    lv_image_set_src(art_image, &falafel_asset_taxi);
-    lv_obj_center(art_image);
-
+    title_label = falafel_theme_create_label(root, "Taxi", &lv_font_montserrat_16,
+                                              FALAFEL_COLOR_WHITE);
+    lv_obj_align(title_label, LV_ALIGN_BOTTOM_MID, 0, -76);
     for (int i = 0; i < FALAFEL_PERSONALITY_COUNT; ++i) {
         markers[i] = lv_obj_create(root);
-        lv_obj_set_size(markers[i], 78, 6);
-        lv_obj_align(markers[i], LV_ALIGN_TOP_LEFT, 18 + i * 94, 298);
-        lv_obj_set_style_border_width(markers[i], 0, 0);
-        lv_obj_set_style_radius(markers[i], 0, 0);
-        lv_obj_set_style_pad_all(markers[i], 0, 0);
-        lv_obj_clear_flag(markers[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_style_all(markers[i]);
+        lv_obj_set_size(markers[i], 5, 5);
+        lv_obj_align(markers[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 14, -57);
+        lv_obj_set_style_bg_opa(markers[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(markers[i], LV_RADIUS_CIRCLE, 0);
     }
-
-    lv_obj_t *messages = create_action_button(root, "MESSAGGI", FALAFEL_COLOR_NIGHT);
-    lv_obj_align(messages, LV_ALIGN_BOTTOM_LEFT, 18, -15);
-    messages_label = lv_obj_get_child(messages, 0);
-    lv_obj_add_event_cb(messages, messages_clicked, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *write = create_action_button(root, "SCRIVI", FALAFEL_COLOR_YELLOW);
-    lv_obj_align(write, LV_ALIGN_BOTTOM_RIGHT, -18, -15);
-    lv_obj_add_event_cb(write, composer_clicked, LV_EVENT_CLICKED, NULL);
-
+    rotation_timer = lv_timer_create(rotation_step, HOME_FRAME_MS, NULL);
+    lv_timer_pause(rotation_timer);
+    lv_obj_add_event_cb(root, home_deleted, LV_EVENT_DELETE, NULL);
     add_pointer_handler_to_tree(root);
     falafel_home_refresh();
     return root;
@@ -220,17 +197,10 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
 
 void falafel_home_refresh(void)
 {
-    const personality_view_t *view = &personalities[falafel_gui.personality];
-    lv_label_set_text(title_label, view->name);
-    lv_label_set_text(line_label, view->line);
-    lv_label_set_text(code_label, view->code);
-    lv_image_set_src(art_image, view->image);
-
-    for (int i = 0; i < FALAFEL_PERSONALITY_COUNT; ++i) {
+    lv_obj_set_style_bg_color(message_button, lv_color_hex(falafel_gui.unread_count
+        ? FALAFEL_COLOR_ACCENT : FALAFEL_COLOR_SURFACE), 0);
+    lv_label_set_text(title_label, names[falafel_gui.personality]);
+    for (int i = 0; i < FALAFEL_PERSONALITY_COUNT; ++i)
         lv_obj_set_style_bg_color(markers[i], lv_color_hex(
-            i == (int)falafel_gui.personality ? FALAFEL_COLOR_YELLOW : FALAFEL_COLOR_LIGHT_GRAY), 0);
-    }
-
-    if (falafel_gui.unread_count == 0) lv_label_set_text(messages_label, "MESSAGGI");
-    else lv_label_set_text_fmt(messages_label, "MESSAGGI  %u", falafel_gui.unread_count);
+            i == (int)falafel_gui.personality ? FALAFEL_COLOR_ACCENT : FALAFEL_COLOR_MUTED), 0);
 }

@@ -14,6 +14,8 @@
 
 typedef void (*desktop_event_fn)(void *user_data, const falafel_event_t *event);
 
+typedef bool (*desktop_frame_fn)(void *, const uint8_t *, size_t);
+
 typedef enum {
     DESKTOP_TRANSPORT_DISCONNECTED = 0,
     DESKTOP_TRANSPORT_RESOLVING,
@@ -36,6 +38,9 @@ typedef struct {
     uint64_t reconnect_after_ms;
     uint64_t connect_deadline_ms;
     desktop_event_fn on_event;
+    desktop_frame_fn on_frame; /* optional strict v2 path, mutually exclusive */
+    uint64_t progress_deadline_ms;
+    size_t io_chunk; /* zero normally; bounded I/O for deterministic tests */
     void *user_data;
     desktop_transport_state_t state;
     pthread_t resolver_thread;
@@ -73,3 +78,8 @@ bool desktop_allocate_event_id(const char *path, const falafel_app_t *app,
                                uint32_t device_id, uint32_t *next_sequence,
                                uint32_t *reserved_sequence,
                                uint64_t *event_id);
+
+/* Uses existing reconnect, framing, buffering and partial I/O implementation. */
+void desktop_transport_init_frames(desktop_transport_t *, const char *, uint16_t,
+                                   uint32_t, uint32_t, desktop_frame_fn, void *);
+bool desktop_transport_send_frame(void *, const uint8_t *, size_t);

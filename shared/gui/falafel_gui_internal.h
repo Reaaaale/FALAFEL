@@ -6,14 +6,23 @@
 #include "falafel_gui.h"
 #include "lvgl.h"
 
-#define FALAFEL_COLOR_HORN_BLUE  0x2455A4
-#define FALAFEL_COLOR_YELLOW     0xF5C518
-#define FALAFEL_COLOR_CREAM      0xFFF9EB
-#define FALAFEL_COLOR_NIGHT      0x17243A
-#define FALAFEL_COLOR_LIGHT_GRAY 0xE7EAF0
-#define FALAFEL_COLOR_PALE       0xFFF3B5
-#define FALAFEL_COLOR_WHITE      0xFFFFFF
+/* Flat sage/cream/toasted-orange simulator palette. Legacy names keep the
+ * existing GUI widgets on the same theme without changing their behavior. */
+#define FALAFEL_COLOR_SAGE       0x34483E
+#define FALAFEL_COLOR_ACCENT     0xD88A35
+#define FALAFEL_COLOR_SURFACE    0x40564A
+#define FALAFEL_COLOR_MUTED      0x718276
+#define FALAFEL_COLOR_CREAM      0xF3E9D8
+#define FALAFEL_COLOR_HORN_BLUE  FALAFEL_COLOR_SURFACE
+#define FALAFEL_COLOR_YELLOW     FALAFEL_COLOR_ACCENT
+#define FALAFEL_COLOR_NIGHT      FALAFEL_COLOR_SAGE
+#define FALAFEL_COLOR_LIGHT_GRAY FALAFEL_COLOR_MUTED
+#define FALAFEL_COLOR_PALE       FALAFEL_COLOR_SURFACE
+#define FALAFEL_COLOR_WHITE      FALAFEL_COLOR_CREAM
 
+#define FALAFEL_ROTATION_FRAME_COUNT 24
+extern const lv_image_dsc_t falafel_asset_rotation[FALAFEL_ROTATION_FRAME_COUNT];
+extern const lv_image_dsc_t falafel_asset_character;
 extern const lv_image_dsc_t falafel_asset_taxi;
 extern const lv_image_dsc_t falafel_asset_cook;
 extern const lv_image_dsc_t falafel_asset_reminder;
@@ -30,6 +39,8 @@ typedef struct {
     lv_timer_t *notification_timer;
     falafel_gui_callbacks_t callbacks;
     falafel_personality_t personality;
+    bool personality_animating;
+    uint8_t rotation_frame;
     bool wifi_connected;
     bool peer_connected;
     uint8_t battery_percent;

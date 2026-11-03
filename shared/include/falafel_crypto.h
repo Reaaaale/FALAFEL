@@ -26,7 +26,12 @@ typedef union {
 
 /* The context owns the platform entropy/DRBG state. Initialize once before use
  * and free it before release. AEAD is intentionally stateless: callers must
- * guarantee that a nonce is never reused with the same key. */
+ * guarantee that a nonce is never reused with the same key.
+ * ESP-IDF: the application must keep a documented primary hardware entropy
+ * source available during initial seeding AND automatic DRBG reseeds. This
+ * provider does not enable RF or take ownership of the ADC entropy source.
+ * Never clone an initialized context (fork/hibernation) without reseeding it.
+ * Functional tests do not certify side-channel resistance or identity storage. */
 
 falafel_crypto_result_t falafel_crypto_init(falafel_crypto_context_t *context);
 void falafel_crypto_free(falafel_crypto_context_t *context);
@@ -60,6 +65,8 @@ falafel_crypto_result_t falafel_crypto_aead_decrypt(
     const uint8_t *ciphertext, size_t ciphertext_size,
     const uint8_t *tag, size_t tag_size,
     uint8_t *plaintext, size_t plaintext_capacity);
+falafel_crypto_result_t falafel_crypto_sha256(const uint8_t *input, size_t size,
+                                               uint8_t output[32]);
 int falafel_crypto_constant_time_equal(const uint8_t *left, const uint8_t *right,
                                        size_t size);
 void falafel_crypto_secure_zero(void *data, size_t size);

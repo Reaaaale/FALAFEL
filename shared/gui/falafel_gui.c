@@ -12,6 +12,16 @@ static void show_only(lv_obj_t *visible)
 }
 void falafel_gui_show_home(void) { show_only(falafel_gui.home); }
 void falafel_gui_show_messages(void) { falafel_gui.unread_count = 0; falafel_home_refresh(); show_only(falafel_gui.messages); }
+bool falafel_gui_is_messages_active(void)
+{
+    return falafel_gui.messages && !lv_obj_has_flag(falafel_gui.messages, LV_OBJ_FLAG_HIDDEN);
+}
+void falafel_gui_open_messages(void)
+{
+    falafel_gui_show_messages();
+    if (falafel_gui.callbacks.on_messages_opened)
+        falafel_gui.callbacks.on_messages_opened(falafel_gui.callbacks.user_data);
+}
 void falafel_gui_show_composer(void) { falafel_composer_reset(); show_only(falafel_gui.composer); }
 bool falafel_gui_is_home_active(void)
 {
@@ -31,15 +41,18 @@ void falafel_gui_create(void)
 {
     falafel_gui.screen = lv_screen_active(); falafel_theme_apply_screen(falafel_gui.screen);
     lv_obj_clear_flag(falafel_gui.screen, LV_OBJ_FLAG_SCROLLABLE);
-    falafel_gui.content = lv_obj_create(falafel_gui.screen); lv_obj_set_size(falafel_gui.content, 320, 480);
+    falafel_gui.content = lv_obj_create(falafel_gui.screen); lv_obj_set_size(falafel_gui.content, 466, 466);
     lv_obj_align(falafel_gui.content, LV_ALIGN_CENTER, 0, 0); lv_obj_set_style_bg_opa(falafel_gui.content, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(falafel_gui.content, 0, 0); lv_obj_set_style_pad_all(falafel_gui.content, 0, 0);
     lv_obj_clear_flag(falafel_gui.content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(falafel_gui.content, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_clip_corner(falafel_gui.content, true, 0);
     falafel_gui.home = falafel_home_create(falafel_gui.content);
     falafel_gui.messages = falafel_messages_create(falafel_gui.content);
     falafel_gui.composer = falafel_composer_create(falafel_gui.content);
-    falafel_gui.status_bar = falafel_status_bar_create(falafel_gui.content);
-    falafel_gui.notification = lv_obj_create(falafel_gui.screen); lv_obj_set_size(falafel_gui.notification, 280, 52);
+    /* Connection state remains available to callbacks, without rectangular chrome. */
+    falafel_gui.status_bar = NULL;
+    falafel_gui.notification = lv_obj_create(falafel_gui.content); lv_obj_set_size(falafel_gui.notification, 280, 52);
     lv_obj_align(falafel_gui.notification, LV_ALIGN_TOP_MID, 0, 58);
     lv_obj_set_style_bg_color(falafel_gui.notification, lv_color_hex(FALAFEL_COLOR_NIGHT), 0);
     lv_obj_set_style_border_color(falafel_gui.notification, lv_color_hex(FALAFEL_COLOR_YELLOW), 0);

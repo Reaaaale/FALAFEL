@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Durable local Falafel relay. The protocol is cleartext and development-only."""
+"""Durable development relay: legacy v1 or opaque encrypted v2 envelopes."""
 
 import argparse
 import copy
@@ -10,6 +10,7 @@ import socket
 import struct
 import tempfile
 
+MAIL_HEADER = struct.Struct(">2sBBII16sH")
 MAX_FRAME = 296
 MAX_HANDSHAKE = 80
 MAX_INPUT = 8192
@@ -30,11 +31,13 @@ class Client:
         self.output = bytearray()
         self.device = None
         self.peer = None
+        self.version = 1
 
 
 class Relay:
     def __init__(self, host, port, data_file, allowed, max_pending,
-                 max_completed=1024, persist_hook=None):
+                 max_completed=1024, persist_hook=None, e2ee_only=False):
+        self.e2ee_only = e2ee_only
         self.selector = selectors.DefaultSelector()
         self.clients = {}
         self.by_device = {}
@@ -57,6 +60,12 @@ class Relay:
 
     @staticmethod
     def _record_from_frame(frame):
+        if frame[2] == 2:
+            fields = MAIL_HEADER.unpack(frame[:MAIL_HEADER.size])
+            return {"key": f"e:{fields[3]}:{fields[5].hex()}:{fields[2]}",
+                    "source": fields[3], "destination": fields[4],
+                    "event_id": fields[5].hex(), "kind": fields[2],
+                    "frame": frame.hex(), "version": 2}
         fields = HEADER.unpack(frame[:HEADER.size])
         return {
             "key": f"{fields[3]}:{fields[5]}:{fields[2]}",
@@ -79,9 +88,12 @@ class Relay:
                 parsed = self._parse_frame(frame)
             except (KeyError, ValueError, struct.error):
                 return False
-            return (parsed[3] == record["source"] and
+            expected = self._record_from_frame(frame)
+            return (expected["key"] == record["key"] and
+                    expected["event_id"] == record["event_id"] and
+                    expected.get("version", 1) == record.get("version", 1) and
+                    parsed[3] == record["source"] and
                     parsed[4] == record["destination"] and
-                    parsed[5] == record["event_id"] and
                     parsed[2] == record["kind"])
         return True
 
@@ -106,6 +118,9 @@ class Relay:
             raise PersistenceError("invalid pending relay record")
         if not all(self._validate_loaded_record(item, False) for item in completed):
             raise PersistenceError("invalid completed relay record")
+        if self.e2ee_only and any(r.get("version", 1) != 2
+                                  for r in pending + completed):
+            raise PersistenceError("plaintext state rejected in E2EE-only mode")
         self.state = loaded
 
     def _save(self):
@@ -127,6 +142,8 @@ class Relay:
                 finally:
                     os.close(directory_fd)
             except OSError:
+                if any(r.get("version") == 2 for r in self.state["pending"]):
+                    raise  # encrypted offline delivery requires durable directory replacement
                 # Some filesystems do not support directory fsync. The file itself
                 # has still been flushed and atomically replaced.
                 pass
@@ -224,10 +241,11 @@ class Relay:
             self._drop(client)
             return False
         del client.input[:newline + 1]
-        if (word != "HELLO" or (own, peer) not in self.allowed or
+        if (word not in ("HELLO", "HELLO2") or (self.e2ee_only and word != "HELLO2") or (own, peer) not in self.allowed or
                 own in self.by_device):
             self._drop(client)
             return False
+        client.version = 2 if word == "HELLO2" else 1
         client.device = own
         client.peer = peer
         self.by_device[own] = client
@@ -235,9 +253,9 @@ class Relay:
         return True
 
     def _consume_frames(self, client):
-        while len(client.input) >= 4:
+        while client.sock in self.clients and len(client.input) >= 4:
             size = struct.unpack(">I", client.input[:4])[0]
-            if size < HEADER.size or size > MAX_FRAME:
+            if size < (MAIL_HEADER.size if client.version == 2 else HEADER.size) or size > MAX_FRAME:
                 self._drop(client)
                 return
             if len(client.input) < size + 4:
@@ -251,6 +269,20 @@ class Relay:
                 # No acknowledgement is queued. The sender will retry.
 
     def _parse_frame(self, frame):
+        if len(frame) >= 3 and frame[2] == 2:
+            if len(frame) < MAIL_HEADER.size:
+                raise ValueError("short encrypted frame")
+            fields = MAIL_HEADER.unpack(frame[:MAIL_HEADER.size])
+            magic, version, kind, source, destination, mid, length = fields
+            envelope = frame[MAIL_HEADER.size:]
+            if (magic != b"FL" or kind not in (4, 5) or
+                    (source, destination) not in self.allowed or
+                    not 134 <= length <= 256 or len(envelope) != length or
+                    envelope[:5] != b"FAE\x01\x01" or envelope[5] > 122 or
+                    length != 134 + envelope[5] or envelope[70:86] != mid or
+                    (kind == 4 and length < 139) or (kind == 5 and length != 172)):
+                raise ValueError("invalid encrypted frame")
+            return fields
         if len(frame) < HEADER.size:
             raise ValueError("short frame")
         fields = HEADER.unpack(frame[:HEADER.size])
@@ -352,17 +384,43 @@ class Relay:
         except (ValueError, struct.error):
             self._drop(client)
             return
-        if client.device != fields[3]:
+        if client.device != fields[3] or frame[2] != client.version:
             self._drop(client)
             return
-        if fields[2] == 3:
+        if frame[2] == 2:
+            self._process_encrypted(frame)
+        elif fields[2] == 3:
             self._process_device_ack(client, fields, frame)
         else:
             self._process_original(client, frame, fields)
 
+    def _process_encrypted(self, frame):
+        record = self._record_from_frame(frame)
+        pending = self._find_pending(record["key"])
+        if pending is not None:
+            # IDs cannot silently replace a previously accepted ciphertext.
+            if pending["frame"] != record["frame"]:
+                return
+        else:
+            if len(self.state["pending"]) >= self.max_pending:
+                return  # sender retains its durable outbox and retries
+            previous = copy.deepcopy(self.state)
+            self.state["pending"].append(record)
+            try:
+                self._save()
+            except PersistenceError:
+                self.state = previous
+                raise
+        self._deliver(record)
+        if record["kind"] == 4:
+            key = f"e:{record['destination']}:{record['event_id']}:5"
+            receipt = self._find_pending(key)
+            if receipt is not None:
+                self._deliver(receipt)
+
     def _deliver(self, record):
         recipient = self.by_device.get(record["destination"])
-        if recipient is not None:
+        if recipient is not None and recipient.version == record.get("version", 1):
             self._queue_frame(recipient, bytes.fromhex(record["frame"]))
 
     def _redeliver(self, device):
@@ -385,6 +443,7 @@ class Relay:
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--e2ee-only", action="store_true", help="reject legacy plaintext clients")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7777)
     parser.add_argument("--data", default=".falafel-relay/state.json")
@@ -402,7 +461,7 @@ def main():
         parser.error("queue limits must be positive")
     Relay(args.host, args.port, args.data,
           [(first, second), (second, first)],
-          args.max_pending, args.max_completed).run()
+          args.max_pending, args.max_completed, e2ee_only=args.e2ee_only).run()
 
 
 if __name__ == "__main__":

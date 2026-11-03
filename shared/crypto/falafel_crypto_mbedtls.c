@@ -10,6 +10,7 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/gcm.h>
 #include <mbedtls/hkdf.h>
+#include <mbedtls/sha256.h>
 #include <mbedtls/platform_util.h>
 #include <mbedtls/private_access.h>
 #include <mbedtls/version.h>
@@ -225,3 +226,10 @@ void falafel_crypto_secure_zero(void *data, size_t size) {
 }
 
 const char *falafel_crypto_backend_version(void) { return MBEDTLS_VERSION_STRING_FULL; }
+
+falafel_crypto_result_t falafel_crypto_sha256(const uint8_t *input, size_t size,
+                                               uint8_t output[32]) {
+    if (!valid_buffer(input, size) || !output) return FALAFEL_CRYPTO_INVALID_ARGUMENT;
+    return mbedtls_sha256(input, size, output, 0) == 0 ?
+        FALAFEL_CRYPTO_OK : FALAFEL_CRYPTO_BACKEND_ERROR;
+}

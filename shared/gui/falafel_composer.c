@@ -12,8 +12,8 @@ static void send_clicked(lv_event_t *event)
         falafel_gui_show_notification("Invio non riuscito");
         return;
     }
-    falafel_gui_add_sent_message(text); lv_textarea_set_text(textarea, "");
-    falafel_gui_show_messages(); falafel_gui_show_notification("Messaggio in coda");
+    lv_textarea_set_text(textarea, "");
+    falafel_gui_open_messages(); falafel_gui_show_notification("Richiesta inviata al worker");
 }
 
 lv_obj_t *falafel_composer_create(lv_obj_t *parent)
@@ -34,7 +34,7 @@ lv_obj_t *falafel_composer_create(lv_obj_t *parent)
     lv_obj_center(send_label); lv_obj_add_event_cb(send, send_clicked, LV_EVENT_CLICKED, NULL);
     textarea = lv_textarea_create(root); lv_obj_set_size(textarea, 300, 82);
     lv_obj_align(textarea, LV_ALIGN_TOP_MID, 0, 60); lv_textarea_set_placeholder_text(textarea, "Il tuo messaggio...");
-    lv_textarea_set_max_length(textarea, 240); lv_obj_set_style_bg_color(textarea, lv_color_hex(FALAFEL_COLOR_WHITE), 0);
+    lv_textarea_set_max_length(textarea, 117); lv_obj_set_style_bg_color(textarea, lv_color_hex(FALAFEL_COLOR_WHITE), 0);
     lv_obj_set_style_text_color(textarea, lv_color_hex(FALAFEL_COLOR_NIGHT), 0);
     lv_obj_set_style_border_color(textarea, lv_color_hex(FALAFEL_COLOR_NIGHT), 0);
     lv_obj_set_style_border_width(textarea, 2, 0); lv_obj_set_style_radius(textarea, 8, 0);

@@ -51,6 +51,34 @@ static void test_hkdf(void) {
     assert(memcmp(output, expected, sizeof(output)) == 0);
 }
 
+/* SEC-001: a peer must not force a constant shared secret. These public inputs
+ * are low-order Curve25519 points, including non-canonical encodings of 0/1.
+ * Test only published RFC private material; no persistent identity is created.
+ * Passing this test does NOT establish constant-time execution or good entropy. */
+static void test_x25519_reject_low_order(falafel_crypto_context_t *context) {
+    static const char *points[] = {
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0100000000000000000000000000000000000000000000000000000000000000",
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"
+    };
+    uint8_t private_key[32], public_key[32], shared[32], zero[32] = {0};
+    decode_hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", private_key, 32);
+    for (size_t i = 0; i < sizeof(points) / sizeof(points[0]); ++i) {
+        decode_hex(points[i], public_key, 32);
+        memset(shared, 0xa5, sizeof(shared));
+        assert(falafel_crypto_x25519_shared(context, private_key, 32, public_key, 32,
+                                           shared, 32) != FALAFEL_CRYPTO_OK);
+        assert(!memcmp(shared, zero, sizeof(shared)));
+    }
+    uint8_t guarded[34]; memset(guarded, 0xa5, sizeof(guarded));
+    assert(falafel_crypto_x25519_shared(context, private_key, 32, public_key, 32,
+                                       guarded + 1, 31) == FALAFEL_CRYPTO_INVALID_ARGUMENT);
+    for (size_t i = 0; i < sizeof(guarded); ++i) assert(guarded[i] == 0xa5);
+    falafel_crypto_secure_zero(private_key, sizeof(private_key));
+}
+
 static void test_aead(void) {
     uint8_t key[32] = {0}, nonce[12] = {0}, tag[16], expected_tag[16];
     uint8_t zero_block[16] = {0}, expected_ciphertext[16], expected_block_tag[16];
@@ -116,6 +144,7 @@ int main(void) {
     assert(falafel_crypto_x25519_generate(&context, private_key, sizeof(private_key),
                                           public_key, sizeof(public_key)) == FALAFEL_CRYPTO_OK);
     test_x25519(&context);
+    test_x25519_reject_low_order(&context);
     test_hkdf();
     test_aead();
     test_validation(&context);
