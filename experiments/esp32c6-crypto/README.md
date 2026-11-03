@@ -1,53 +1,49 @@
 # ESP32-C6 cryptographic experiment
 
-This standalone ESP-IDF application compiles the shared Falafel crypto provider
-and runs functional tests on real hardware. It is not the Falafel firmware and
-does not change the main firmware target.
+This existing standalone ESP-IDF project compiles Falafel's actual Mbed TLS
+provider. SEC-003 extends it with temporary RAM-only identities, known-answer
+vectors, ECDH, authenticated encryption/decryption, tamper rejection, automatic
+reseed observation, injected failures and cleanup checks. No production provider,
+protocol, persistent identity or provisioning change is made.
 
-```sh
-idf.py -C experiments/esp32c6-crypto set-target esp32c6
-idf.py -C experiments/esp32c6-crypto build
-idf.py -C experiments/esp32c6-crypto -p /dev/cu.usbmodemXXXX flash monitor
-```
+**Software preparation verified; hardware validation NOT RUN. SEC-003 remains
+OPEN. Permanent identities remain NO-GO on C6/S3.**
 
-Exit the monitor with `Ctrl-]`. The program reports pass/fail, elapsed time,
-free heap, largest free block and the minimum main-task stack space observed at
-startup, after crypto initialization, after the known-vector tests and after
-cleanup. It runs the self-tests once and never logs keys or shared secrets.
+Use the isolated ESP-IDF 5.5.6 / Mbed TLS 3.6.7 baseline and the new safety
+overlay. The definitive build, manual flash, UART monitor, five warm/five cold
+reboot procedure and PASS/FAIL criteria are in
+[SEC-003](../../docs/security/SEC-003.md). Build commands also appear in
+[the firmware guide](../../firmware/README.md). Do not build current sources into
+old SEC-001/002 directories or use an arbitrary active SDK.
 
-The experiment deliberately keeps the ESP-IDF main-task stack at its 3,584-byte
-default. The opaque 1,536-byte crypto context is allocated from internal
-8-bit-capable heap instead of the main-task stack. This avoids the stack
-protection fault seen when that context was a local `app_main()` variable,
-without masking the problem by increasing the task stack. Allocation failure
-produces a clear final `FAIL` result.
+The prepared artifact is
+`build/sec003-20261103/crypto-c6-ready/falafel_esp32c6_crypto.bin` (248,208 bytes).
+Revalidated from a fresh build on 2026-11-03; all earlier builds are retained.
+The new configuration uses a 4,096-byte main-task stack and a heap-allocated
+1,536-byte provider context. The experiment owns the internal SAR entropy source
+through initialization and all reseeds, starts no RF/user ADC/sleep, and releases
+ownership after cleanup. This policy is specific to the standalone experiment.
 
-A successful hardware run ends with:
+All 14 device cases must pass, with `SEC003 RESULT PASS passed=14 failed=0
+cleanup=1`, adequate stack margin and actual hardware polling. This result has
+**not** yet been observed on the board. Host rehearsal and raw provider regression
+pass, including ASan/UBSan; native results are not hardware evidence. Public boot
+fingerprints detect gross repetition only, never prove entropy quality.
 
-```text
-cryptographic self-tests: PASS
-```
+Flash is configured to stay in the bootloader. Start the UART monitor without
+reset, then press Reset to capture a complete run after the 10-second grace
+period. No flash or monitor command was executed during software preparation.
 
-All reported stack watermarks must remain greater than zero. Record the lowest
-value when validating a new ESP-IDF release or target; a small margin should be
-investigated before adding more work to `app_main()`.
+## Historical evidence
 
-The final ESP32-C6-DevKitC-1 run with ESP-IDF 5.5.2 completed all self-tests
-once and returned normally from `app_main()`. It measured 651,170 us elapsed,
-1,952 bytes minimum free from the 3,584-byte main-task stack, 460,768/460,296
-bytes free heap before/after cleanup, a 434,176-byte largest free block and a
-`0x3a100`-byte application binary.
+An earlier ESP-IDF 5.5.2 physical run completed the older self-tests once:
+651,170 us elapsed, 1,952 bytes minimum free stack from 3,584 bytes,
+460,768/460,296 bytes free heap before/after cleanup, largest block 434,176 bytes,
+and binary 0x3a100 bytes. It predates SEC-001 and SEC-003 and cannot validate the
+current binary, entropy ownership, error paths or reboot behavior.
 
-The AES-256-GCM hardware known-answer test uses the NIST one-block vector. The
-ESP-IDF 5.5.2 accelerated GCM path rejects a zero-length input with
-`esp-aes-gcm: No input supplied`, so the empty-plaintext vector used by the
-desktop backend is not suitable for this hardware experiment. Both vectors are
-standards-based; this difference changes only the self-test input, not the
-shared provider.
-
-ESP-IDF 5.5.2 contains `mbedtls-3.6.5-11-gffb280bb63`. Inspection of that
-bundled repository shows that the 11 Espressif commits after the 3.6.5 tag do
-not contain the ECC side-channel correction released in Mbed TLS 3.6.7. It is
-suitable for this functionality test, but production integration with
-persistent X25519 keys must use an Espressif release verified to contain the
-correction and repeat these tests on the selected hardware.
+[SEC-001](../../docs/security/SEC-001.md) identified the old ECC vulnerability;
+[SEC-002](../../docs/security/SEC-002.md) verified its correction in the isolated
+5.5.6 source and linked code (historical binary 0x3b810). All previous SDKs,
+configurations and artifacts remain unchanged. A newer SDK or functional PASS
+alone does not establish security for permanent identities.

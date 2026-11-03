@@ -1,130 +1,110 @@
 #include "falafel_crypto.h"
-
-#include <stdint.h>
-#include <string.h>
-
+#include "sec003_suite.h"
+#include "sec003_probe.h"
+#include "bootloader_random.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "mbedtls/build_info.h"
+#include <inttypes.h>
+#include <stdio.h>
+
+#if !CONFIG_IDF_TARGET_ESP32C6 || ESP_IDF_VERSION != ESP_IDF_VERSION_VAL(5, 5, 6)
+#error "SEC-003 requires ESP32-C6 and the pinned ESP-IDF 5.5.6 baseline"
+#endif
+#if MBEDTLS_VERSION_NUMBER != 0x03060700 || !defined(MBEDTLS_ENTROPY_HARDWARE_ALT) || \
+    !defined(MBEDTLS_NO_PLATFORM_ENTROPY) || !defined(MBEDTLS_AES_ALT) || !defined(MBEDTLS_GCM_ALT)
+#error "SEC-003 crypto/entropy configuration differs from the reviewed C6 baseline"
+#endif
+#if defined(CONFIG_SECURE_BOOT) || defined(CONFIG_SECURE_FLASH_ENC_ENABLED) || \
+    defined(CONFIG_PM_ENABLE) || !defined(CONFIG_ESP_COREDUMP_ENABLE_TO_NONE) || \
+    !defined(CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT) || !defined(CONFIG_ESPTOOLPY_AFTER_NORESET)
+#error "Use the SEC-003 safety overlay; no security provisioning or key-bearing panic dumps"
+#endif
 
 static const char *TAG = "falafel_crypto_test";
-
-static void log_stack_watermark(const char *phase) {
-    ESP_LOGI(TAG, "main stack minimum free after %s: %u bytes", phase,
-             (unsigned)uxTaskGetStackHighWaterMark(NULL));
+static void report(void *user, const char *name, bool ok)
+{
+    (void)user;
+    ESP_LOGI(TAG, "SEC003 CASE %s %s", name, ok ? "PASS" : "FAIL");
+}
+static void yield_test(void *user)
+{
+    (void)user;
+    vTaskDelay(1); /* Let idle/watchdog run; power management is disabled. */
+}
+static void public_hex(const uint8_t bytes[32], char out[65])
+{
+    for (unsigned i = 0; i < 32; ++i) (void)snprintf(out + 2 * i, 3, "%02x", bytes[i]);
 }
 
-static int hex_value(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return -1;
-}
-
-static int decode_hex(const char *hex, uint8_t *output, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        int high = hex_value(hex[i * 2u]);
-        int low = hex_value(hex[i * 2u + 1u]);
-        if (high < 0 || low < 0) return 0;
-        output[i] = (uint8_t)((high << 4) | low);
-    }
-    return hex[size * 2u] == '\0';
-}
-
-static int known_vector_tests(falafel_crypto_context_t *context) {
-    static const uint8_t ikm[22] = {
-        0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
-        0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b
-    };
-    static const uint8_t salt[13] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-    static const uint8_t info[10] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9};
-    static const uint8_t expected[42] = {
-        0x3c,0xb2,0x5f,0x25,0xfa,0xac,0xd5,0x7a,0x90,0x43,0x4f,0x64,0xd0,0x36,
-        0x2f,0x2a,0x2d,0x2d,0x0a,0x90,0xcf,0x1a,0x5a,0x4c,0x5d,0xb0,0x2d,0x56,
-        0xec,0xc4,0xc5,0xbf,0x34,0x00,0x72,0x08,0xd5,0xb8,0x87,0x18,0x58,0x65
-    };
-    static const uint8_t plaintext[16] = {0};
-    static const uint8_t expected_ciphertext[16] = {
-        0xce,0xa7,0x40,0x3d,0x4d,0x60,0x6b,0x6e,
-        0x07,0x4e,0xc5,0xd3,0xba,0xf3,0x9d,0x18
-    };
-    static const uint8_t expected_tag[16] = {
-        0xd0,0xd1,0xc8,0xa7,0x99,0x99,0x6b,0xf0,
-        0x26,0x5b,0x98,0xb5,0xd4,0x8a,0xb9,0x19
-    };
-    uint8_t output[42], key[32] = {0}, nonce[12] = {0}, tag[16];
-    uint8_t private_a[32], public_a[32], private_b[32], public_b[32], shared_a[32], shared_b[32];
-    if (falafel_crypto_hkdf_sha256(salt, sizeof(salt), ikm, sizeof(ikm), info,
-                                   sizeof(info), output, sizeof(output)) != FALAFEL_CRYPTO_OK ||
-        memcmp(output, expected, sizeof(output)) != 0) return 0;
-    if (falafel_crypto_aead_encrypt(key, sizeof(key), nonce, sizeof(nonce), NULL, 0,
-                                    plaintext, sizeof(plaintext), output, sizeof(output),
-                                    tag, sizeof(tag)) != FALAFEL_CRYPTO_OK ||
-        memcmp(output, expected_ciphertext, sizeof(expected_ciphertext)) != 0 ||
-        memcmp(tag, expected_tag, sizeof(tag)) != 0) return 0;
-    if (!decode_hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", private_a, 32) ||
-        !decode_hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f", public_b, 32) ||
-        !decode_hex("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742", output, 32) ||
-        falafel_crypto_x25519_shared(context, private_a, 32, public_b, 32, shared_a, 32) != FALAFEL_CRYPTO_OK ||
-        !falafel_crypto_constant_time_equal(shared_a, output, 32)) return 0;
-    if (falafel_crypto_x25519_generate(context, private_a, 32, public_a, 32) != FALAFEL_CRYPTO_OK ||
-        falafel_crypto_x25519_generate(context, private_b, 32, public_b, 32) != FALAFEL_CRYPTO_OK ||
-        falafel_crypto_x25519_shared(context, private_a, 32, public_b, 32, shared_a, 32) != FALAFEL_CRYPTO_OK ||
-        falafel_crypto_x25519_shared(context, private_b, 32, public_a, 32, shared_b, 32) != FALAFEL_CRYPTO_OK ||
-        !falafel_crypto_constant_time_equal(shared_a, shared_b, 32)) return 0;
-    falafel_crypto_secure_zero(private_a, sizeof(private_a));
-    falafel_crypto_secure_zero(private_b, sizeof(private_b));
-    falafel_crypto_secure_zero(shared_a, sizeof(shared_a));
-    falafel_crypto_secure_zero(shared_b, sizeof(shared_b));
-    return 1;
-}
-
-void app_main(void) {
-    falafel_crypto_context_t *context = NULL;
-    int initialized = 0;
-    int passed = 0;
+void app_main(void)
+{
+    /* Allows USB-UART reconnection/capture after a genuine power cycle.
+     * No crypto, identity generation or entropy ownership during this delay. */
+    ESP_LOGI(TAG, "SEC003 WAIT start_delay_ms=10000");
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    char elf_hex[65], fingerprint[65];
+    public_hex(esp_app_get_description()->app_elf_sha256, elf_hex);
+    ESP_LOGI(TAG, "SEC003 BEGIN platform=ESP32C6 idf=%s mbed=%s elf_sha256=%s reset_reason=%d",
+             esp_get_idf_version(), MBEDTLS_VERSION_STRING, elf_hex, (int)esp_reset_reason());
+    ESP_LOGW(TAG, "SEC003 POLICY SAR_EXCLUSIVE no_RF_or_user_ADC no_sleep test_only=1");
+    ESP_LOGW(TAG, "SEC003 Permanent identities NO_GO; statistics and counters do not prove entropy");
     int64_t started = esp_timer_get_time();
-    size_t free_before = esp_get_free_heap_size();
-
-    ESP_LOGI(TAG, "backend: %s", falafel_crypto_backend_version());
-    ESP_LOGI(TAG, "configured main stack: %u bytes; crypto context: %u bytes",
-             (unsigned)CONFIG_ESP_MAIN_TASK_STACK_SIZE,
-             (unsigned)sizeof(*context));
-    log_stack_watermark("startup");
-
-    context = heap_caps_malloc(sizeof(*context), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (context == NULL) {
-        ESP_LOGE(TAG, "crypto context allocation: FAILED");
+    size_t heap_before = esp_get_free_heap_size();
+    sec003_result result = {0};
+    bool ok = false;
+    bool entropy_owned = false;
+    falafel_crypto_context_t *context = NULL;
+    bool resources_ok = heap_caps_check_integrity_all(false);
+    if (!resources_ok) goto finished;
+    context = heap_caps_calloc(1, sizeof(*context), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!context) {
+        report(NULL, "allocation", false);
+        result.failed = 1;
         goto finished;
     }
-
-    if (falafel_crypto_init(context) != FALAFEL_CRYPTO_OK) {
-        ESP_LOGE(TAG, "secure random initialization: FAILED");
-        goto finished;
-    }
-    initialized = 1;
-    log_stack_watermark("crypto initialization");
-
-    if (!known_vector_tests(context)) {
-        goto finished;
-    }
-    passed = 1;
-    log_stack_watermark("known-vector tests");
+    /* Exclusive to this diagnostic app. No RF, user ADC or power-management
+     * initialization occurs. Keep the source available for every reseed. */
+    bootloader_random_enable();
+    entropy_owned = true;
+    ESP_LOGI(TAG, "SEC003 SOURCE enable_requested=1 physical_health=NOT_MEASURED");
+    sec003_hooks callbacks = {.case_result = report, .yield = yield_test};
+    ok = sec003_suite_run(context, &callbacks, &result);
 
 finished:
-    if (initialized) falafel_crypto_free(context);
-    heap_caps_free(context);
-
-    if (passed) {
-        ESP_LOGI(TAG, "cryptographic self-tests: PASS");
-    } else {
-        ESP_LOGE(TAG, "cryptographic self-tests: FAIL");
+    /* Suite frees the provider and wipes all its key/scratch buffers on errors
+     * as well as success. The outer owner then releases memory and SAR ownership. */
+    if (context) {
+        falafel_crypto_secure_zero(context, sizeof(*context));
+        heap_caps_free(context);
     }
-    ESP_LOGI(TAG, "elapsed: %lld us", (long long)(esp_timer_get_time() - started));
-    ESP_LOGI(TAG, "free heap before/after: %u/%u bytes; largest block: %u bytes",
-             (unsigned)free_before, (unsigned)esp_get_free_heap_size(),
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    log_stack_watermark("cleanup");
+    if (entropy_owned) bootloader_random_disable();
+    resources_ok = resources_ok && heap_caps_check_integrity_all(false) &&
+                   uxTaskGetStackHighWaterMark(NULL) >= 512 && result.cleaned;
+    report(NULL, "platform_resources", resources_ok);
+    if (resources_ok) ++result.passed; else ++result.failed;
+    ok = ok && resources_ok;
+    sec003_probe_stats stats = sec003_probe_get();
+    ESP_LOGI(TAG, "SEC003 PROBE entropy_calls=%" PRIu32 " injected_failures=%" PRIu32
+             " hardware_calls=%" PRIu32 " hardware_bytes=%" PRIu32,
+             stats.entropy_calls, stats.injected_failures, stats.hardware_calls, stats.hardware_bytes);
+    ESP_LOGI(TAG, "SEC003 RESOURCES heap_before=%u heap_after=%u largest_block=%u stack_min_bytes=%u elapsed_us=%lld",
+             (unsigned)heap_before, (unsigned)esp_get_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+             (unsigned)uxTaskGetStackHighWaterMark(NULL), (long long)(esp_timer_get_time() - started));
+    if (ok) {
+        /* Only a PUBLIC ephemeral-key digest for cross-boot repeat detection.
+         * Never print random samples, private keys, DH secrets or derived keys. */
+        public_hex(result.public_boot_fingerprint, fingerprint);
+        ESP_LOGI(TAG, "SEC003 PUBLIC_BOOT_FINGERPRINT %s", fingerprint);
+    }
+    ESP_LOGI(TAG, "SEC003 RESULT %s passed=%u failed=%u cleanup=%u",
+             ok ? "PASS" : "FAIL", result.passed, result.failed, result.cleaned ? 1u : 0u);
+    ESP_LOGW(TAG, "SEC003 STATUS hardware_review=PENDING permanent_identities=NO_GO");
 }

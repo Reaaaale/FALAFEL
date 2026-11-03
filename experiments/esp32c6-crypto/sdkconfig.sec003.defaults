@@ -1,0 +1,12 @@
+# Overlay after sdkconfig.defaults; only in a NEW SEC-003 build/config directory.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+# Manual flash remains in the bootloader until the operator starts capture/reset.
+CONFIG_ESPTOOLPY_AFTER_NORESET=y
+# No key-bearing panic/core dumps; an unexpected reboot is a hardware FAIL.
+CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n
+CONFIG_PM_ENABLE=n
