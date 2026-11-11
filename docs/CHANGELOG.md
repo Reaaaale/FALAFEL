@@ -1,5 +1,81 @@
 # Falafel development changelog
 
+## 2026-11-11 — Relay reconnect after C6 hardware reset
+
+- Fixed `relay/falafel_relay.py`: validated same-ID/peer/version registration
+  closes the old transport before taking ownership. Lost FIN/RST no longer
+  causes permanent duplicate-ID rejection. Existing cleanup/event guards retain
+  the new owner. No protocol, E2EE, identity or persistence-format changes.
+- Added five real-TCP regression cases in `test/test_relay.py`; updated the
+  existing firmware TCP adapter integration expectation in
+  `test/test_embedded_relay_tcp.py`. Lost-FIN test fails before the fix.
+  Tests also cover FIN/RST, repeated reconnects, partial replay, invalid/version
+  mismatch registration and unchanged persisted cache. Firmware cleanup audited;
+  no firmware modification or new firmware build required.
+- Host normal/sanitized builds pass. All 19 CTest checks per configuration pass
+  after new test synchronization corrections; relay suite (15 cases) repeated
+  five times per configuration passes. Sanitizers cover C adapters, not Python.
+- User reports real bidirectional C6/Proxmox/Mac E2EE success. Updated root,
+  firmware and relay guides, C6 lab guide, protocol, architecture and project
+  status; supplied manual LXC 100 deployment/rollback. No server access, deployment,
+  physical RESET/EN acceptance, identity/store changes or commits in this session.
+
+
+## 2026-11-08 — C6 E2EE lab runtime (hardware acceptance pending)
+
+- Firmware lab worker reuses unchanged mailbox/link/provider/NVS as sole delivery
+  authority; adds strict bounded v2 stream parsing, partial writes, retry/reconnect,
+  provisioned identity, one preset/store and persistent incoming consumption.
+  Only an authenticated receipt plus successful durable commit emits delivery.
+  No Message Manager, mTLS, embedded GUI, relay or wire-format changes.
+- Added external-only identity NVS image preparer; binding/checksum and routing
+  IDs, no keys in source/arguments/logs. Initial image flashing replaces the lab
+  data partition; no flash or automatic erase performed. Eight lifetime IDs per
+  direction intentionally retained; full history/retirement is not ported.
+- Verification: host normal and ASan/UBSan 19/19 each PASS. New core tests include
+  forged/duplicate receipts, injected NVS failure before completion, reopen/exact
+  ciphertext, reverse DATA, FULL and wrong identity. Real local relay + SDL test
+  runs actual C6 lab/stream sources with NVS model, 3-byte I/O, upload interruption,
+  reconnect/reopen and one UI receive/delivery. Temporary-only provisioner tests
+  check private NVS image, checksum, unchanged input and overwrite refusal.
+- Fresh IDF 5.5.6 C6 build PASS: 902,000-byte binary, 81,040-byte app margin;
+  286,742-byte unallocated static DIRAM, not measured runtime heap. Runtime logs
+  heap/minimum/largest block/stack. RF-disabled diagnostic unchanged.
+- Proxmox addresses supplied, direct TCP not reachable in Mac probes; proposed
+  LAN host socket proxy documented, never installed. No firewall/router changes,
+  existing simulator data changes, real credentials, USB, flash or physical E2EE.
+  The required C6 -> Proxmox -> Mac milestone remains NOT COMPLETE.
+- Updated firmware/root/component guides, protocol/design/persistence cross-links,
+  architecture/status and exact provisioning/build/flash/monitor/acceptance guide.
+
+## 2026-11-06 — C6 Wi-Fi/TCP registration preparation
+
+- Components: firmware main, new Kconfig and Wi-Fi/TCP modules, root CMake and
+  host transport probe/tests. Documentation: root/firmware/component READMEs,
+  architecture, embedded storage, project status and new C6 transport guide.
+- Reproduced desktop encrypted v2 exchange through the unchanged Python relay.
+  Added optional WPA2 Wi-Fi, DHCP, FreeRTOS socket ownership, bounded five-second
+  connect/HELLO2 deadline, partial writes and retry after disconnect. Network is
+  disabled by default; local sdkconfig holds configuration, never source defaults.
+- Missing application storage no longer exits before optional networking. Standard
+  Wi-Fi NVS stays separate from falafel_data, uses RAM credential configuration
+  and is never automatically erased. No embedded identity/provisioning, mailbox
+  messaging, DATA, receipt or crypto runtime added. Received bytes are discarded
+  without ACK; HELLO2 write is explicitly not confirmed relay acceptance.
+- Relay, event-v1/v2 formats and RF-disabled crypto diagnostic remain unchanged.
+  Proxmox endpoint was not available; no remote compatibility/reachability claim.
+  Tests ran temporary loopback relays only, with no Internet exposure.
+- Verification: host/simulator builds PASS; baseline host 16/16, then host 17/17
+  normal and 17/17 ASan/UBSan including three new adapter test cases; simulator
+  4/4 PASS (real encrypted endpoint/receipt/history integration). Fresh C6 IDF
+  5.5.6 builds PASS: network off 189,472 B; on 882,640 B, app partition 983,040 B.
+  Enabled image leaves 100,400 B; revisit capacity before adding messaging.
+  IDF initially hit sandbox sysctl restrictions; approved outside-sandbox reruns
+  succeeded. No real credentials, hardware/flash, commits or remote changes.
+- Hardware Wi-Fi/reconnect and Proxmox remain NOT TESTED. Next: select/validate
+  LAN relay and run configured C6 transport, then separately implement temporary
+  paired identity/mailbox/link for the first encrypted DATA and authenticated ACK.
+
 ## 2026-11-03 — CI encrypted retry comparison and C11 history portability
 
 - Changed only `test/test_mail_link.py`, `test/test_history.c` and relevant test

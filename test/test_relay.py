@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
+from pathlib import Path
 import json
 import selectors
+import select
 import socket
 import struct
 import subprocess
@@ -207,6 +209,113 @@ class RelayTest(unittest.TestCase):
         self.assertIsNone(self.relay.process.poll())
         with open(self.state, encoding="utf-8") as stream:
             self.assertEqual(len(json.load(stream)["pending"]), len(frames))
+
+
+class RelayReconnectTest(unittest.TestCase):
+    """Real TCP sockets, with explicit dispatch to reproduce a lost FIN/RST."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.relay = Relay("127.0.0.1", 0,
+                           os.path.join(self.temporary.name, "state.json"),
+                           [(1, 2), (2, 1)], 512, e2ee_only=True)
+        self.addCleanup(self.relay.selector.close)
+        self.addCleanup(self.relay.server.close)
+
+    def connect(self, hello=b"HELLO2 1 2\n"):
+        remote = socket.create_connection(self.relay.server.getsockname(), timeout=1)
+        self.addCleanup(remote.close)
+        self.assertTrue(select.select([self.relay.server], [], [], 1)[0])
+        self.relay._accept()
+        client = list(self.relay.clients.values())[-1]
+        self.addCleanup(self.relay._drop, client)
+        remote.sendall(hello)
+        self.assertTrue(select.select([client.sock], [], [], 1)[0])
+        self.relay._read(client)
+        return client, remote
+
+    def test_reset_without_fin_replaces_stale_session_and_replays(self):
+        old, old_remote = self.connect()
+        self.assertIs(self.relay.by_device[1], old)
+        # A hardware reset can leave the server socket established indefinitely.
+        # Do not send FIN/RST: the old registration must still be present.
+        frame = encrypted_data(71)
+        self.relay._process_frame(old, frame)
+        saved = json.dumps(self.relay.state, sort_keys=True)
+        disk = Path(self.relay.data_file).read_bytes()
+        for _ in range(3):
+            current, remote = self.connect()
+            self.assertIs(self.relay.by_device[1], current)
+            self.assertEqual(old.sock.fileno(), -1)
+            self.assertNotIn(old.sock, self.relay.clients)
+            self.assertEqual(old_remote.recv(1), b"")
+            # A delayed cleanup/event for the old socket cannot evict the new ID.
+            self.relay._drop(old)
+            self.assertIs(self.relay.by_device[1], current)
+            old, old_remote = current, remote
+        peer, reader = self.connect(b"HELLO2 2 1\n")
+        self.relay._write(peer)
+        expected = struct.pack(">I", len(frame)) + frame
+        received = bytearray()
+        while len(received) < len(expected):
+            part = reader.recv(len(expected) - len(received))
+            self.assertTrue(part)
+            received.extend(part)
+        self.assertEqual(received, expected)
+        self.assertEqual(json.dumps(self.relay.state, sort_keys=True), saved)
+        self.assertEqual(Path(self.relay.data_file).read_bytes(), disk)
+
+    def test_replacement_discards_partial_output_and_replays_complete_frame(self):
+        old, _ = self.connect(b"HELLO2 2 1\n")
+        frame = encrypted_data(72)
+        self.relay.state["pending"] = [Relay._record_from_frame(frame)]
+        self.relay._redeliver(2)
+        # Old stream has already sent a prefix fragment when the device resets.
+        old.sock.send(old.output[:3])
+        del old.output[:3]
+        current, reader = self.connect(b"HELLO2 2 1\n")
+        self.assertIs(self.relay.by_device[2], current)
+        self.assertEqual(old.sock.fileno(), -1)
+        self.relay._write(current)
+        expected = struct.pack(">I", len(frame)) + frame
+        received = bytearray()
+        while len(received) < len(expected):
+            part = reader.recv(len(expected) - len(received))
+            self.assertTrue(part)
+            received.extend(part)
+        self.assertEqual(received, expected)
+
+    def test_mixed_mode_version_mismatch_cannot_evict_owner(self):
+        self.relay.e2ee_only = False
+        old, _ = self.connect()
+        rejected, _ = self.connect(b"HELLO 1 2\n")
+        self.assertEqual(rejected.sock.fileno(), -1)
+        self.assertIs(self.relay.by_device[1], old)
+
+    def test_fin_and_reset_release_registration(self):
+        for reset in (False, True):
+            with self.subTest(reset=reset):
+                old, remote = self.connect()
+                self.assertIs(self.relay.by_device[1], old)
+                if reset:
+                    remote.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                      struct.pack("ii", 1, 0))
+                remote.close()
+                self.assertTrue(self.relay.selector.select(timeout=1))
+                self.relay._read(old)
+                self.assertNotIn(1, self.relay.by_device)
+                current, _ = self.connect()
+                self.assertIs(self.relay.by_device[1], current)
+                self.relay._drop(current)
+
+    def test_invalid_registration_cannot_evict_owner(self):
+        old, _ = self.connect()
+        for hello in (b"HELLO2 1 3\n", b"HELLO 1 2\n", b"invalid\n"):
+            with self.subTest(hello=hello):
+                rejected, _ = self.connect(hello)
+                self.assertEqual(rejected.sock.fileno(), -1)
+                self.assertIs(self.relay.by_device[1], old)
 
 
 class RelayReplayTest(unittest.TestCase):

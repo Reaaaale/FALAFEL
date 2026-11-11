@@ -93,8 +93,14 @@ Host tests establish adapter/core behavior under modeled single-blob outcomes:
 - Retired duplicates return the exact original authenticated ACK.
 
 No multi-key transaction is added. Existing core ordering provides crash recovery
-between record, manifest and mailbox. The firmware stub only probes an existing
-namespace; it has no messaging consumer and invokes no crypto at boot.
+between record, manifest and mailbox. The default boot probes existing storage.
+The optional C6 lab worker now opens the existing NVS mailbox callbacks and uses
+the unchanged mailbox/link with a provisioned identity in a separate namespace.
+It keeps local mailbox format v1 with eight lifetime IDs/direction, not the full
+application archive/retirement. Standard Wi-Fi nvs stays separate and is never
+erased automatically. Initial identity-image flashing explicitly replaces
+falafel_data and must not be repeated on restart. See the
+[C6 lab procedure](c6-relay-transport.md); physical exchange is not yet observed.
 
 Physical validation is still required for real blob-index/page recovery under
 interrupted programming, erasure and GC. CRC/GCM detect corruption, not repair

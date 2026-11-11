@@ -1,7 +1,22 @@
-# ESP-IDF storage experiment
+# ESP-IDF C6 E2EE lab and storage experiment
 
-Firmware probes mailbox/history storage. Wi-Fi, worker, enrollment, GUI and
-drivers remain unintegrated. Boot creates no namespace, mailbox or identity.
+Firmware retains a read-only application-storage probe and an optional lab
+FreeRTOS worker owning Wi-Fi, v2 TCP framing, the unchanged E2EE mailbox/link,
+Mbed TLS provider and NVS persistence. One preset is queued once per provisioned
+mailbox; only an authenticated peer receipt durably completes it. Reconnect and
+reboot reuse saved IDs/ciphertext. Incoming data is authenticated and consumed
+persistently with ID-only diagnostics. No GUI, Message Manager or TLS/mTLS.
+
+Lab credentials are imported from an external 64-byte identity using a private
+NVS image; never embed them in source. Default networking is off; the explicit
+`firmware/sdkconfig.c6-lab.defaults` overlay enables the lab. Existing mailbox
+state is never overwritten by boot. Its eight lifetime IDs/direction are not an
+unbounded archive. Wi-Fi NVS and falafel_data remain distinct, with no automatic
+erase. See [exact build/provision/flash/monitor commands and proposed Proxmox
+LAN path](../docs/c6-relay-transport.md). The user confirms real bidirectional C6/Proxmox/Mac E2EE. The relay-only
+reset/reconnect fix needs deployment and physical reset acceptance; firmware
+already closes sockets on connection errors and before reconnecting.
+The RF-disabled crypto diagnostic remains a separate unchanged executable.
 
 **Development baseline: ESP-IDF 5.5.6 / Mbed TLS 3.6.7, validated on C6 by
 [SEC-002](../docs/security/SEC-002.md). Permanent real identities: NO-GO.**

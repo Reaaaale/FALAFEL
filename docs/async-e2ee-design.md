@@ -452,7 +452,8 @@ production identity loading must use the established trusted pairing backend.
 
 Define production-facing identity loading/rotation and authenticated relay
 registration/TLS; choose safe bounded-history retention and epoch migration;
-provide ESP-IDF networking and physically verify the implemented NVS adapter;
+physically verify the C6 lab networking/mailbox and implemented NVS adapter
+(the lab now cross-builds and passes host integration);
 repeat hardware RNG, stack and persistence testing on the selected patched
 ESP32-S3 platform. Integrate an application/UI consumer only after specifying
 its idempotent durable effects and clear full-capacity/error behavior. Do not

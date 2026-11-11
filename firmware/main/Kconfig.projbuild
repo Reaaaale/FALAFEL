@@ -1,0 +1,40 @@
+menu "Falafel LAN relay transport"
+config FALAFEL_NETWORK_ENABLE
+    bool "Enable Wi-Fi and lab E2EE mailbox"
+    default n
+    help
+        Separate from the RF-disabled crypto diagnostic. Credentials live in
+        your local build sdkconfig and firmware image, never in tracked defaults.
+if FALAFEL_NETWORK_ENABLE
+config FALAFEL_WIFI_SSID
+    string "Wi-Fi SSID (local build only)"
+    default ""
+config FALAFEL_WIFI_PASSWORD
+    string "Wi-Fi password (local build only)"
+    default ""
+config FALAFEL_RELAY_IPV4
+    string "Relay private LAN IPv4 address"
+    default ""
+config FALAFEL_RELAY_PORT
+    int "Relay TCP port"
+    range 1 65535
+    default 7777
+config FALAFEL_DEVICE_ID
+    int "Own routing ID (not cryptographic identity)"
+    range 1 2147483647
+    default 1
+config FALAFEL_PEER_ID
+    int "Peer routing ID"
+    range 1 2147483647
+    default 2
+config FALAFEL_LAB_CREATE_MAILBOX
+    bool "Explicitly allow initial creation of lab mailbox"
+    default n
+    help
+        Only for a freshly provisioned falafel_data partition. Existing valid
+        mailbox is reopened, never reset. Corrupt/mismatched state is fatal.
+config FALAFEL_PRESET_TEXT
+    string "Automatic preset (1..117 UTF-8 bytes)"
+    default "Ciao dal Falafel ESP32-C6"
+endif
+endmenu

@@ -1,0 +1,5 @@
+# Disposable-identity lab runtime. Load AFTER sdkconfig.storage.defaults.
+CONFIG_FALAFEL_NETWORK_ENABLE=y
+CONFIG_FALAFEL_LAB_CREATE_MAILBOX=y
+# No TLS in this LAN milestone: omit the unused public CA bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n

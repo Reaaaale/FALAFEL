@@ -1,8 +1,53 @@
 # Falafel project status
 
-Last updated: 2026-11-03
+Last updated: 2026-11-11
 
 ## Current status
+
+2026-11-11 — The user reports successful real bidirectional E2EE between
+ESP32-C6 (ID 1), Proxmox LXC 100 relay and Mac simulator (ID 2).
+The reset/reconnect defect is fixed locally: a valid same-ID/peer/version
+registration closes the previous transport, then rebuilds replay from unchanged
+durable state. Lost FIN/RST no longer leaves the ID permanently occupied.
+Firmware socket cleanup was reviewed; no firmware change or rebuild is needed.
+Host builds pass; all 19 checks in each normal/ASan/UBSan suite pass after the
+new test's TCP synchronization corrections; relay regression passes five
+consecutive runs per configuration (15 cases each). C sanitizer instrumentation
+covers the host adapters, not the Python relay. Deployment and physical RESET/EN
+acceptance of this fix are pending. No remote service, identity or stored data
+was modified. See [relay behavior and deployment](../relay/README.md).
+
+### Historical checkpoints (superseded by the current status above)
+
+2026-11-08 — C6 lab runtime implemented, software verification complete;
+**physical C6 -> Proxmox -> Mac milestone NOT COMPLETE**. Existing mailbox/link,
+provider and NVS now run in the optional Wi-Fi worker: external lab identity
+import, one durable preset/store, v2 frame parsing, authenticated receipts,
+retry/reconnect, persistent incoming consumption and no new ID on reboot.
+No Message Manager, GUI, TLS/mTLS, relay or wire changes. Local mailbox retains
+eight lifetime IDs/direction without archive retirement. Host normal and
+ASan/UBSan 19/19 each PASS, including C6 sources/NVS model with real relay and
+SDL simulator, partial upload/reconnect/reopen and reverse preset. Provisioner
+passes temporary-only tests. C6 IDF 5.5.6 binary 902,000 B, app free 81,040 B;
+static DIRAM remaining 286,742 B is not measured runtime heap. No hardware flash,
+real identity import or existing simulator-store changes. Proxmox deployment
+was supplied (LXC 100, 10.77.0.2:8765), but Mac direct TCP timed out; LAN host
+192.168.1.200:8765 was unreachable. Proposed host LAN proxy remains unapproved
+and unapplied. Actual simulator paths/IDs and USB hardware run remain pending.
+See [exact commands, limits and acceptance criteria](c6-relay-transport.md).
+
+2026-11-06 — C6 LAN transport preparation implemented and cross-built. Optional
+WPA2 Wi-Fi/FreeRTOS worker writes existing HELLO2 over bounded nonblocking TCP;
+network defaults off, received bytes are discarded without ACK, and no identity,
+mailbox messaging or crypto runtime is initialized. The storage probe remains
+independent. RF-disabled crypto diagnostic, relay and wire formats are unchanged.
+Desktop v2 exchange reproduced: host 17/17 normal and 17/17 ASan/UBSan, simulator
+4/4 PASS; new host test exercises the same C TCP adapter against the real relay.
+Fresh IDF 5.5.6 C6 builds PASS: disabled 189,472 B, enabled 882,640 B, leaving
+100,400 B in the existing app partition. No credentials configured, flash or
+hardware network test. Proxmox address/access not supplied: reachability and
+compatibility remain unverified. Verified relay is temporary local loopback.
+See [configuration, architecture and next steps](c6-relay-transport.md).
 
 2026-11-03 — CI test fixes implemented and locally verified: encrypted TCP tests
 now match immutable saved frames by ID, without assuming slot/arrival order;
@@ -49,8 +94,9 @@ The ESP-IDF persistence increment is implemented: a dedicated NVS backend
 implements existing mailbox/history callbacks with full-ID slot mapping and
 fail-closed errors. Normal and ASan/UBSan host suites pass 16/16 each; the C6
 firmware cross-build passes. Physical power-cut/GC/capacity, S3 and embedded
-crypto approval remain pending. Boot probes existing storage only; there is no
-firmware messaging consumer, enrollment or automatic store creation.
+crypto approval remain pending. Default boot probes existing storage; the optional
+C6 lab now has a temporary-identity mailbox worker with explicitly enabled initial
+creation. Production enrollment and embedded history retirement remain pending.
 See [embedded storage](embedded-storage.md).
 
 Milestone 3C.1 is an isolated desktop live-channel prototype: Noise IK uses
@@ -258,8 +304,9 @@ receive effects before consume; replay archive persists before active-slot reuse
   rotation and an always-visible demo icon. PNG decode is synchronous per draw;
   slow platforms extend playback. ESP32-S3 flash/PSRAM and timing need validation.
 - ESP-IDF storage adapter is implemented and C6 cross-built; physical NVS
-  power-cut/GC/wear and S3 validation remain pending. Other hardware/network/GUI
-  adapters are not integrated. Embedded crypto remains blocked for real keys.
+  power-cut/GC/wear and S3 validation remain pending. The user reports successful
+  physical C6 lab bidirectional E2EE; the relay reconnect fix still needs deployment
+  and physical reset acceptance. Other hardware/GUI adapters are not integrated. Embedded crypto remains blocked for real keys.
 - Pairing and identity persistence are implemented only as a desktop prototype;
   production identity loading is not implemented. GUI integration uses trusted
   fixture identity files generated explicitly; neither GUI nor headless runtime
@@ -306,7 +353,8 @@ receive effects before consume; replay archive persists before active-slot reuse
   is maintainable, then repeat vectors for that backend.
 - Define authenticated retention/epochs and persistence rollback/replay policy.
 - Production relay authentication and transport security.
-- ESP-IDF networking/worker and secure identity/backup/key-rotation integration.
+- Deploy the reviewed relay reconnect fix and repeat physical C6 RESET/EN
+  without restarting the service; production identity/backup/key-rotation integration.
 - Validate the implemented NVS adapter physically on C6, then cross-build/test
   on S3 with a verified crypto baseline; measure real capacity and wear.
 - Validate storage wear, real power-cut recovery, archive/relay capacity and
@@ -318,9 +366,11 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
-Next verification: rerun GitHub Actions GCC/Clang and Linux simulator jobs after
-the CI test fixes are pushed by the user. Local `/usr/bin/gcc` is Apple Clang,
-not an independent GNU GCC result; no Linux runtime is installed.
+Review the relay-only deployment commands in `relay/README.md`, update LXC 100
+manually, then repeat C6 RESET/EN several times without restarting falafel-relay.
+Verify RESTORED, stable registration, reverse authenticated delivery and no new
+message IDs or duplicate GUI rows. The original physical bidirectional exchange
+is user-confirmed; acceptance of this correction remains pending.
 
 Plan 3C.3 production identity loading/rotation, relay authentication/TLS and
 safe retention/epoch design. Desktop durable history/consumption is implemented;
@@ -333,6 +383,13 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-11 — Relay stale-session reconnect corrected and locally verified;
+real bidirectional C6/Proxmox/Mac exchange confirmed by the user. Deployment and
+hardware acceptance of the correction remain pending.
+
+2026-11-06 — Registration-only C6 LAN transport preparation, both build variants
+and desktop encrypted v2 regressions verified. Hardware/Proxmox remain pending.
 
 2026-11-03 — CI test correctness/portability fixes, local verification complete:
 host 17/17, simulator 4/4, three repeated E2EE suites and history sanitizer PASS.

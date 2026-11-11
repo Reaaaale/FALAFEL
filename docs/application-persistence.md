@@ -6,8 +6,9 @@ not the Noise K envelopes, HELLO2 registration or v2 DATA/RECEIPT wire protocol.
 2026-11-01: an ESP-IDF NVS adapter now implements the same callbacks without
 changing these blob formats. C6 cross-build and normal/sanitized host recovery
 tests pass; physical power-cut/GC, actual capacity and S3 verification remain
-pending. There is no firmware consumer or identity provisioning yet. The embedded
-crypto issue still excludes real identities/data. See [embedded storage](embedded-storage.md)
+pending. The C6 lab now has explicit temporary identity import and a mailbox
+consumer without archive retirement; the full history consumer remains desktop.
+Embedded use stays restricted to disposable lab identities/data. See [embedded storage](embedded-storage.md)
 for backend selection, atomicity assumptions and physical test checklist.
 The E2EE provider and relay implementation are reused unchanged.
 

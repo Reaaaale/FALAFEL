@@ -68,7 +68,9 @@ ctest --test-dir build/tests -R encrypted_tcp_end_to_end --output-on-failure
 
 Run the full root suite in Debug, Release and ASan/UBSan as described in the main
 README. Local TCP socket permission is required. This is a desktop prototype;
-ESP-IDF transport and storage adapters and Wi-Fi remain future work. The LVGL
+the C6 lab now integrates Wi-Fi, TCP, the same mailbox/link and NVS with explicit
+temporary credentials (cross-built and host-tested, not physically verified).
+See `docs/c6-relay-transport.md`; no headless wire format changes. The LVGL
 simulator now reuses this runtime architecture in a separate worker, with a
 encrypted persistent history, consumption after durable idempotent effects and
 archive-backed active-slot reuse. Its local FMBX v2 snapshots require the matching

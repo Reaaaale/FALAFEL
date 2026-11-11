@@ -64,6 +64,18 @@ The LVGL simulator now uses v2 exclusively, with no plaintext fallback. Its
 command/event queues are local application interfaces, not new wire messages.
 Registration is routing, not cryptographic identity authentication.
 
+The optional C6 lab worker also uses this unchanged v2 transport. Its local
+mailbox format v1 (eight lifetime IDs/direction) interoperates with the simulator's
+archive-backed local format v2; local versions are not negotiated on the wire.
+The user confirms physical bidirectional C6/Proxmox/Mac E2EE; acceptance of the
+relay reconnect fix is pending. See `c6-relay-transport.md`.
+
+A valid registration for an occupied device ID replaces and closes its previous
+TCP connection only when peer and transport version match. This recovers reset
+clients even without FIN/RST; replay starts with complete frames from the same
+cache. Invalid registrations and version mismatches leave the old owner intact.
+This is unauthenticated routing policy, not a change to E2EE or wire formats.
+
 The same four-byte big-endian TCP frame-length prefix is reused. A v2 frame is:
 
 | Offset | Bytes | Field |

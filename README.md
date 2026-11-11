@@ -5,6 +5,13 @@ paired-device messaging experiment. Two simulator instances now exchange E2EE
 mailbox messages through a self-hosted relay, with offline recovery.
 Taxi/Cuoco/Promemoria selection is local in the encrypted simulator.
 
+The ESP32-C6 lab firmware now integrates the existing E2EE mailbox/link with
+Wi-Fi/TCP, explicitly provisioned identities and NVS. Host/SDL integration and
+C6 cross-build pass. The user confirms successful real bidirectional
+C6 -> Proxmox -> Mac E2EE. The reset/reconnect fix is locally verified;
+deployment to LXC 100 and hardware reset acceptance remain pending.
+See [C6 lab build, provisioning and acceptance test](docs/c6-relay-transport.md).
+
 ## Build and test
 
 ```sh

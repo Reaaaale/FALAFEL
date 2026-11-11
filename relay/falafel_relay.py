@@ -260,11 +260,19 @@ class Relay:
             self._drop(client)
             return False
         del client.input[:newline + 1]
-        if (word not in ("HELLO", "HELLO2") or (self.e2ee_only and word != "HELLO2") or (own, peer) not in self.allowed or
-                own in self.by_device):
+        if (word not in ("HELLO", "HELLO2") or (self.e2ee_only and word != "HELLO2") or (own, peer) not in self.allowed):
             self._drop(client)
             return False
-        client.version = 2 if word == "HELLO2" else 1
+        version = 2 if word == "HELLO2" else 1
+        previous = self.by_device.get(own)
+        if previous is not None:
+            if previous.peer != peer or previous.version != version:
+                self._drop(client)
+                return False
+            # A device reset may never send FIN/RST. The latest valid
+            # registration replaces its old transport, not its durable state.
+            self._drop(previous)
+        client.version = version
         client.device = own
         client.peer = peer
         self.by_device[own] = client

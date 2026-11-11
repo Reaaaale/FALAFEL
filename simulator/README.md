@@ -6,6 +6,11 @@ children cannot draw into the square window's outer corners. SDL still creates
 a rectangular window: the masked corners are sage, not desktop-transparent.
 Screen construction lives in `../shared/gui/`.
 
+For a C6 lab peer, retain the simulator's existing identity/mailbox/history and
+use the reciprocal device credential on C6. See [C6 lab setup](../docs/c6-relay-transport.md).
+The new local integration test exchanges messages with the C6 sources compiled
+on host/NVS model; it does not verify physical hardware or the Proxmox route.
+
 ## Build and run
 
 ```sh
