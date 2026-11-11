@@ -33,3 +33,8 @@ __pycache__/
 # ESP32-C6 SEC-003 generated files
 /experiments/esp32c6-crypto/build-sec003/
 /experiments/esp32c6-crypto/sdkconfig.sec003
+
+
+# Simulator build artifacts
+
+/simulator/build/
