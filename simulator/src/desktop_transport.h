@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 
 #include "falafel_app.h"
+#include "falafel_tls.h"
 
 #define DESKTOP_TRANSPORT_INPUT_CAPACITY 4096U
 #define DESKTOP_TRANSPORT_OUTPUT_CAPACITY 1024U
@@ -20,12 +21,16 @@ typedef enum {
     DESKTOP_TRANSPORT_DISCONNECTED = 0,
     DESKTOP_TRANSPORT_RESOLVING,
     DESKTOP_TRANSPORT_CONNECTING,
+    DESKTOP_TRANSPORT_TLS_HANDSHAKE,
     DESKTOP_TRANSPORT_HANDSHAKE,
     DESKTOP_TRANSPORT_CONNECTED
 } desktop_transport_state_t;
 
 typedef struct {
     int fd;
+    bool tls_required;
+    falafel_tls *tls;
+    char tls_name[254], tls_ca[1024], tls_cert[1024], tls_key[1024];
     char host[128];
     uint16_t port;
     uint32_t device_id;
@@ -83,3 +88,7 @@ bool desktop_allocate_event_id(const char *path, const falafel_app_t *app,
 void desktop_transport_init_frames(desktop_transport_t *, const char *, uint16_t,
                                    uint32_t, uint32_t, desktop_frame_fn, void *);
 bool desktop_transport_send_frame(void *, const uint8_t *, size_t);
+
+/* Must be set before polling. Invalid/incomplete options fail closed. */
+bool desktop_transport_configure_tls(desktop_transport_t *, const char *name,
+    const char *ca, const char *cert, const char *key);

@@ -62,19 +62,26 @@ relay with `--e2ee-only` to reject all legacy clients and preexisting plaintext
 state. Without that option it supports both for legacy test compatibility.
 The LVGL simulator now uses v2 exclusively, with no plaintext fallback. Its
 command/event queues are local application interfaces, not new wire messages.
-Registration is routing, not cryptographic identity authentication.
+HELLO2 alone is routing, not E2EE identity authentication. Optional mTLS first
+validates the client certificate chain and maps its SHA-256 DER fingerprint to
+an authorized numeric ID; a different claimed ID is rejected before session
+replacement. Endpoints verify the relay CA/name; no plaintext fallback occurs.
+TLS encrypts the existing stream without new application fields or ACKs.
+See [mTLS configuration, authorization and limits](mtls.md).
 
 The optional C6 lab worker also uses this unchanged v2 transport. Its local
 mailbox format v1 (eight lifetime IDs/direction) interoperates with the simulator's
 archive-backed local format v2; local versions are not negotiated on the wire.
-The user confirms physical bidirectional C6/Proxmox/Mac E2EE; acceptance of the
-relay reconnect fix is pending. See `c6-relay-transport.md`.
+The user confirms physical bidirectional C6/Proxmox/Mac E2EE and reset recovery.
+Optional mTLS is software-verified; physical mTLS acceptance remains pending.
+See `c6-relay-transport.md` and `mtls.md`.
 
 A valid registration for an occupied device ID replaces and closes its previous
 TCP connection only when peer and transport version match. This recovers reset
 clients even without FIN/RST; replay starts with complete frames from the same
 cache. Invalid registrations and version mismatches leave the old owner intact.
-This is unauthenticated routing policy, not a change to E2EE or wire formats.
+In TCP mode this routing is unauthenticated; mTLS additionally requires the
+certificate's authorized ID. E2EE and wire formats are unchanged.
 
 The same four-byte big-endian TCP frame-length prefix is reused. A v2 frame is:
 

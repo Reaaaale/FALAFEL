@@ -8,8 +8,9 @@ Taxi/Cuoco/Promemoria selection is local in the encrypted simulator.
 The ESP32-C6 lab firmware now integrates the existing E2EE mailbox/link with
 Wi-Fi/TCP, explicitly provisioned identities and NVS. Host/SDL integration and
 C6 cross-build pass. The user confirms successful real bidirectional
-C6 -> Proxmox -> Mac E2EE. The reset/reconnect fix is locally verified;
-deployment to LXC 100 and hardware reset acceptance remain pending.
+C6 -> Proxmox -> Mac E2EE and reset recovery. Optional mTLS for relay/C6/simulator
+is implemented and software-verified; physical mTLS and deployment are pending.
+See [mTLS setup, tests, hardware trial and rollback](docs/mtls.md).
 See [C6 lab build, provisioning and acceptance test](docs/c6-relay-transport.md).
 
 ## Build and test
@@ -131,8 +132,9 @@ See `docs/architecture.md` for the state machine and limits and
 ## MVP boundaries
 
 The simulator and headless runtime protect mailbox message content end to end,
-but remain local development prototypes: TCP routing/registration are not
-authenticated and have no TLS. Production identity enrollment, networking/display adapters and rollback protection are
+but remain local development prototypes. Plain TCP routing is unauthenticated;
+optional mTLS authenticates certificates and authorized routing IDs. Production
+identity enrollment, protected keys, networking/display adapters and rollback protection are
 not supplied. The encrypted local history key derives from the existing private
 identity; fixture key-file compromise exposes history. See
 [the persistence/key-management design](docs/application-persistence.md). The legacy core

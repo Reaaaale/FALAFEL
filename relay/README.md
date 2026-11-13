@@ -3,8 +3,10 @@
 Run `python3 relay/falafel_relay.py --pair 1:2`; `--help` lists bind address,
 port, data path, pair, and queue-limit options. It has no third-party dependency.
 
-This is a development service. TCP is cleartext and identities are not
-cryptographically authenticated, so bind only to trusted local interfaces.
+This is a development service. Its default TCP transport is cleartext with
+unauthenticated routing; optional mTLS authenticates the relay and client IDs.
+Keep both lab modes on trusted local interfaces. See [mTLS implementation,
+credential setup and separate manual Proxmox deployment](../docs/mtls.md).
 
 The version-2 JSON state contains pending events and bounded completed-delivery
 records. A new event is acknowledged only after a same-directory temporary file
@@ -26,8 +28,10 @@ startup instead of causing a silent reset.
 Use `--e2ee-only` with the headless mailbox peers or LVGL simulator to accept only `HELLO2`
 registrations and envelope-carrying v2 data/receipt frames. This mode also rejects
 existing legacy plaintext state. Default mode retains v1 compatibility. Numeric
-registration remains unauthenticated; E2EE authentication is performed only at
-the endpoints. No private keys are configured on the relay.
+registration is unauthenticated in TCP mode; optional mTLS binds it to a
+configured leaf-certificate fingerprint. E2EE authentication is performed only at
+the endpoints. The relay has no E2EE private keys; TLS mode loads its separate
+server certificate/key and private CA public certificate.
 
 V2 caches exact ciphertext frames under source/128-bit ID/kind. Both data and
 peer receipts survive restart and are redelivered on reconnect. A data retry also
@@ -51,8 +55,8 @@ The LVGL simulator uses the existing v2 protocol without relay changes. See
 `simulator/README.md` for explicit identity/mailbox setup and two-window tests.
 
 The C6 lab reuses those same DATA/RECEIPT frames. The user confirms successful
-real bidirectional C6/Proxmox/Mac E2EE. The reset/reconnect fix below is locally
-verified; its deployment and physical reset acceptance remain pending.
+real bidirectional C6/Proxmox/Mac E2EE and reset recovery. The optional mTLS
+increment is software-verified; physical mTLS acceptance remains pending.
 See `docs/c6-relay-transport.md` for the lab procedure and proposed LAN-only
 host proxy. No proxy, firewall, router or deployed relay changes were applied.
 
@@ -96,8 +100,9 @@ checks prevent old cleanup/events from removing the replacement connection.
 
 No E2EE, identity, JSON-state, cache-retention or ACK changes. Incomplete output
 belongs to the old stream; the new stream starts with complete cached frames.
-Registration remains unauthenticated; same-ID simultaneous clients can displace
-each other. This is still a trusted-LAN development relay.
+In TCP mode registration is unauthenticated. In mTLS mode only certificates
+mapped to that ID can replace its session. Authorized simultaneous clients for
+the same ID can displace each other. This remains a LAN development relay.
 
 Firmware review: `falafel_relay_tcp_open()` closes descriptors on all failures;
 `network_worker()` closes on Wi-Fi loss, stream error and task exit before
@@ -115,7 +120,23 @@ original implementation. The existing C6 adapter test now verifies replacement
 against a running relay subprocess. Sanitizers apply to C code, not Python.
 No physical reset test or remote deployment was performed in this session.
 
+## Optional mTLS listener
+
+Supply ALL of `--tls-ca`, `--tls-cert`, `--tls-key`, `--tls-devices` to enable
+mTLS. Supplying partial/empty settings fails closed. `--e2ee-only` is independent
+and should also be enabled. Default limits are 10 seconds for TLS/HELLO, 64 total
+connections, 16 unregistered; each is configurable. Existing cache/output bounds
+remain in force. Reconnect authorization precedes old-session replacement.
+
+The new automated check is CTest `relay_mtls` (17 cases plus actual C verifiers);
+`c6_simulator_e2ee` also runs genuine E2EE over mTLS. See [software results and
+exact sidecar deployment commands](../docs/mtls.md). No service was deployed.
+
 ## Manual deployment to Proxmox LXC 100
+
+The procedure below is the historical **TCP reconnect-only patch**, not mTLS
+migration. To preserve the currently verified server, use the separate TLS
+staging procedure linked above instead of replacing its running code.
 
 Only runtime file to update: `relay/falafel_relay.py` ->
 `/opt/falafel/relay/falafel_relay.py` inside LXC 100. Tests/docs stay in the

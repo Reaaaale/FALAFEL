@@ -12,6 +12,7 @@
 typedef struct messaging_controller messaging_controller;
 typedef struct {
     const char *host, *identity_path, *mailbox_path, *history_path;
+    const char *tls_ca, *tls_cert, *tls_key, *tls_server_name;
     bool create_history; /* explicit v1 archive initialization/migration; never resets v2 */
     uint16_t port;
     uint32_t own, peer;

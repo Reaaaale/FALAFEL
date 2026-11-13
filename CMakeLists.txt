@@ -22,6 +22,14 @@ FetchContent_Declare(mbedtls
     DOWNLOAD_EXTRACT_TIMESTAMP FALSE
 )
 FetchContent_MakeAvailable(mbedtls)
+add_library(falafel_tls STATIC shared/network/falafel_tls.c)
+target_include_directories(falafel_tls PUBLIC shared/include)
+target_link_libraries(falafel_tls PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto)
+target_compile_options(falafel_tls PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(FALAFEL_ENABLE_SANITIZERS)
+    target_compile_options(falafel_tls PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(falafel_tls PUBLIC -fsanitize=address,undefined)
+endif()
 
 add_library(falafel_protocol STATIC
     shared/app/falafel_protocol.c
@@ -63,10 +71,10 @@ target_link_libraries(test_crypto PRIVATE falafel_crypto)
 if(UNIX)
     add_executable(test_desktop_state test/test_desktop_state.c simulator/src/desktop_transport.c)
     target_include_directories(test_desktop_state PRIVATE shared/include simulator/src)
-    target_link_libraries(test_desktop_state PRIVATE falafel_app Threads::Threads)
+    target_link_libraries(test_desktop_state PRIVATE falafel_app falafel_tls Threads::Threads)
     add_executable(test_transport_e2e test/test_transport_e2e.c simulator/src/desktop_transport.c)
     target_include_directories(test_transport_e2e PRIVATE shared/include simulator/src)
-    target_link_libraries(test_transport_e2e PRIVATE falafel_app Threads::Threads)
+    target_link_libraries(test_transport_e2e PRIVATE falafel_app falafel_tls Threads::Threads)
 endif()
 
 target_link_libraries(test_app PRIVATE
@@ -255,7 +263,7 @@ endif()
 if(UNIX)
     add_executable(mailbox_peer experiments/desktop-mailbox/mailbox_peer.c simulator/src/desktop_transport.c)
     target_include_directories(mailbox_peer PRIVATE simulator/src)
-    target_link_libraries(mailbox_peer PRIVATE falafel_mail_link falafel_mailbox_posix falafel_app Threads::Threads)
+    target_link_libraries(mailbox_peer PRIVATE falafel_mail_link falafel_mailbox_posix falafel_app falafel_tls Threads::Threads)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(mailbox_peer PRIVATE -Wall -Wextra -Werror)
     endif()
@@ -303,11 +311,11 @@ endif()
 add_test(NAME c6_lab_mailbox COMMAND test_c6_lab)
 if(UNIX)
     add_executable(c6_lab_probe test/c6_lab_probe.c firmware/main/lab_messaging.c
-        firmware/main/relay_tcp.c test/storage_nvs_model/nvs_model.c
+        firmware/main/relay_tcp.c firmware/main/relay_tls.c test/storage_nvs_model/nvs_model.c
         firmware/components/falafel_storage/falafel_storage_espidf.c)
     target_include_directories(c6_lab_probe PRIVATE firmware/main test/storage_nvs_model
         firmware/components/falafel_storage/include)
-    target_link_libraries(c6_lab_probe PRIVATE falafel_mail_link falafel_history)
+    target_link_libraries(c6_lab_probe PRIVATE falafel_mail_link falafel_history falafel_tls)
     target_compile_options(c6_lab_probe PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
     if(FALAFEL_ENABLE_SANITIZERS)
         target_compile_options(c6_lab_probe PRIVATE ${FALAFEL_SANITIZER_FLAGS})
@@ -320,4 +328,18 @@ if(UNIX)
             ${FALAFEL_C6_SIMULATOR_BUILD}/falafel_simulator ${FALAFEL_C6_SIMULATOR_BUILD}/falafel_mailbox_fixture)
         set_tests_properties(c6_simulator_e2ee PROPERTIES TIMEOUT 35)
     endif()
+endif()
+
+if(UNIX)
+    add_executable(tls_client_probe test/tls_client_probe.c simulator/src/desktop_transport.c
+        firmware/main/relay_tcp.c)
+    target_include_directories(tls_client_probe PRIVATE simulator/src firmware/main)
+    target_link_libraries(tls_client_probe PRIVATE falafel_tls falafel_app Threads::Threads)
+    target_compile_options(tls_client_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    if(FALAFEL_ENABLE_SANITIZERS)
+        target_compile_options(tls_client_probe PRIVATE ${FALAFEL_SANITIZER_FLAGS})
+    endif()
+    add_test(NAME relay_mtls COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/test/test_relay_tls.py $<TARGET_FILE:tls_client_probe>)
+    set_tests_properties(relay_mtls PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 90)
 endif()

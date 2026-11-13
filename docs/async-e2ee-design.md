@@ -402,15 +402,18 @@ peers, durable state transitions for retries and receipts, a replay policy for
 old epochs, and an explicit rollback model. Simply deleting consumed records or
 relay frames is not implemented and would undermine the current guarantees.
 
-Relay routing/registration remain unauthenticated and traffic analysis is still
-possible. Malicious clients/relay can deny service, fill the cache or poison a
-routing ID with conflicting ciphertext; no liveness against active attackers is
-claimed. Endpoints fail authentication without changing completion state. The
-relay has no private keys or decryption API, and `--e2ee-only` rejects plaintext
-clients and legacy state. The default mixed mode remains for compatibility and
-must not be described as an encrypted-only service. A future TLS/authenticated
-registration design is needed before Internet deployment. All 3C.2A/3C.2B
-cryptographic, storage rollback and hardware limitations remain.
+Plain TCP relay routing/registration remain unauthenticated. Optional mTLS now
+validates certificates and authorizes HELLO IDs through an external fingerprint
+allowlist, while keeping E2EE envelopes and receipt authority unchanged. It is
+software-verified for relay/C6/simulator; physical mTLS acceptance is pending.
+See [mTLS boundary, risks and manual deployment](mtls.md). Traffic analysis and
+denial of service by the relay remain possible. Authorized malicious clients
+can still fill the cache or send conflicting ciphertext for their own routing
+ID; no liveness against active attackers is claimed. The relay has no E2EE keys
+or decryption API; its TLS server key is a distinct transport credential.
+`--e2ee-only` rejects legacy clients/state and should accompany mTLS. Default
+mixed mode remains for compatibility. Production credential lifecycle, protected
+keys, storage rollback and hardware limitations remain.
 
 ### Actual verification
 
@@ -450,10 +453,10 @@ production identity loading must use the established trusted pairing backend.
 
 ### Next milestone 3C.3
 
-Define production-facing identity loading/rotation and authenticated relay
-registration/TLS; choose safe bounded-history retention and epoch migration;
-physically verify the C6 lab networking/mailbox and implemented NVS adapter
-(the lab now cross-builds and passes host integration);
+Define production-facing identity loading/rotation and TLS credential lifecycle;
+choose safe bounded-history retention and epoch migration. The user has verified
+physical TCP/E2EE/reset recovery; next physically accept the implemented mTLS
+lab mode and validate NVS power-cut/GC behavior;
 repeat hardware RNG, stack and persistence testing on the selected patched
 ESP32-S3 platform. Integrate an application/UI consumer only after specifying
 its idempotent durable effects and clear full-capacity/error behavior. Do not

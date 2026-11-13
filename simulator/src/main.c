@@ -120,6 +120,16 @@ int main(int argc, char **argv)
     bool integration = flag(argc, argv, "--test-send-preset");
     const char *identity = argument(argc, argv, "--identity", NULL);
     const char *mailbox = argument(argc, argv, "--mailbox", NULL);
+    const char *tls_ca = argument(argc, argv, "--tls-ca", NULL);
+    const char *tls_cert = argument(argc, argv, "--tls-cert", NULL);
+    const char *tls_key = argument(argc, argv, "--tls-key", NULL);
+    const char *tls_name = argument(argc, argv, "--tls-server-name", NULL);
+    bool tls_requested = flag(argc,argv,"--tls-ca") || flag(argc,argv,"--tls-cert") ||
+        flag(argc,argv,"--tls-key") || flag(argc,argv,"--tls-server-name");
+    bool tls_complete = tls_ca && *tls_ca && strncmp(tls_ca,"--",2) &&
+        tls_cert && *tls_cert && strncmp(tls_cert,"--",2) &&
+        tls_key && *tls_key && strncmp(tls_key,"--",2) &&
+        tls_name && *tls_name && strncmp(tls_name,"--",2);
     uint32_t own, peer, port = 7777, duration = 0, test_count=1;
     if (!parse_u32(argument(argc, argv, "--device", getenv("FALAFEL_DEVICE_ID")), 1, UINT32_MAX - 1, &own) ||
         !parse_u32(argument(argc, argv, "--peer", getenv("FALAFEL_PEER_ID")), 1, UINT32_MAX - 1, &peer) ||
@@ -128,9 +138,9 @@ int main(int argc, char **argv)
          !parse_u32(argument(argc, argv, "--test-duration-ms", NULL), 1, 60000, &duration)) ||
         !parse_u32(argument(argc,argv,"--test-send-count","1"),1,1000,&test_count) ||
         (!smoke && (!identity || !mailbox)) || (smoke && integration) ||
-        flag(argc, argv, "--data")) {
+        flag(argc, argv, "--data") || (tls_requested && !tls_complete)) {
         fprintf(stderr, "Usage: %s --device ID --peer ID --identity FILE --mailbox FILE "
-            "[--host HOST] [--port PORT] [--history DIR] [--init-history]\n--data legacy state is no longer supported.\n", argv[0]);
+            "[--host HOST] [--port PORT] [--history DIR] [--init-history] [--tls-ca FILE --tls-cert FILE --tls-key FILE --tls-server-name NAME]\n--data legacy state is no longer supported.\n", argv[0]);
         return EXIT_FAILURE;
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -141,6 +151,7 @@ int main(int argc, char **argv)
         messaging_config config = {.own = own, .peer = peer, .port = (uint16_t)port,
             .host = argument(argc, argv, "--host", "127.0.0.1"),
             .identity_path = identity, .mailbox_path = mailbox,
+            .tls_ca=tls_ca, .tls_cert=tls_cert, .tls_key=tls_key, .tls_server_name=tls_name,
             .history_path=argument(argc,argv,"--history",NULL),.create_history=flag(argc,argv,"--init-history")};
         s.controller = messaging_start(&config);
         if (!s.controller) return EXIT_FAILURE;

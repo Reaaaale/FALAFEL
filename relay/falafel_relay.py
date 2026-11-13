@@ -2,6 +2,9 @@
 """Durable development relay: legacy v1 or opaque encrypted v2 envelopes."""
 
 import argparse
+import hashlib
+import ssl
+import time
 import copy
 import json
 import os
@@ -35,11 +38,28 @@ class Client:
         # Ordered, coalesced keys into durable pending state, not another copy
         # of the backlog. At most one waiting delivery per cached record.
         self.deliveries = {}
+        self.tls_handshake = False
+        self.auth_device = None
+        self.deadline = 0
+        self.read_wants_write = False
+        self.write_wants_read = False
+        self.tls_write = None
 
 
 class Relay:
     def __init__(self, host, port, data_file, allowed, max_pending,
-                 max_completed=1024, persist_hook=None, e2ee_only=False):
+                 max_completed=1024, persist_hook=None, e2ee_only=False,
+                 tls_context=None, tls_devices=None, handshake_timeout=10.0,
+                 max_clients=64, max_pending_connections=16):
+        if handshake_timeout <= 0 or max_clients <= 0 or max_pending_connections <= 0:
+            raise ValueError("connection limits must be positive")
+        if tls_context is not None and not tls_devices:
+            raise ValueError("mTLS requires certificate-to-device authorization")
+        self.tls_context = tls_context
+        self.tls_devices = dict(tls_devices or {})
+        self.handshake_timeout = handshake_timeout
+        self.max_clients = max_clients
+        self.max_pending_connections = max_pending_connections
         self.e2ee_only = e2ee_only
         self.selector = selectors.DefaultSelector()
         self.clients = {}
@@ -158,17 +178,60 @@ class Relay:
             raise PersistenceError(f"cannot persist relay state: {error}") from error
 
     def _accept(self):
-        sock, _ = self.server.accept()
+        try:
+            sock, _ = self.server.accept()
+        except (BlockingIOError, InterruptedError):
+            return
+        pending = sum(c.device is None for c in self.clients.values())
+        if len(self.clients) >= self.max_clients or pending >= self.max_pending_connections:
+            sock.close()
+            return
         sock.setblocking(False)
+        try:
+            if self.tls_context is not None:
+                sock = self.tls_context.wrap_socket(sock, server_side=True,
+                    do_handshake_on_connect=False, suppress_ragged_eofs=False)
+        except (OSError, ssl.SSLError):
+            sock.close()
+            return
         client = Client(sock)
+        client.tls_handshake = self.tls_context is not None
+        client.deadline = time.monotonic() + self.handshake_timeout
         self.clients[sock] = client
         self.selector.register(sock, selectors.EVENT_READ, client)
 
+    def _tls_handshake(self, client):
+        try:
+            client.sock.do_handshake()
+            certificate = client.sock.getpeercert(binary_form=True)
+            client.auth_device = self.tls_devices.get(
+                hashlib.sha256(certificate).hexdigest()) if certificate else None
+            if client.auth_device is None:
+                self._drop(client)
+                return
+        except ssl.SSLWantReadError:
+            self.selector.modify(client.sock, selectors.EVENT_READ, client)
+            return
+        except ssl.SSLWantWriteError:
+            self.selector.modify(client.sock, selectors.EVENT_WRITE, client)
+            return
+        except (ssl.SSLError, OSError):
+            self._drop(client)
+            return
+        client.tls_handshake = False
+        self._set_events(client)
+
     def _set_events(self, client):
         events = selectors.EVENT_READ
-        if client.output:
+        if client.read_wants_write or (client.output and not client.write_wants_read):
             events |= selectors.EVENT_WRITE
         self.selector.modify(client.sock, events, client)
+
+    def _expire_clients(self):
+        now = time.monotonic()
+        for client in list(self.clients.values()):
+            if client.device is None and now >= client.deadline:
+                self._drop(client)
 
     def _drop(self, client):
         if client.device is not None and self.by_device.get(client.device) is client:
@@ -194,14 +257,26 @@ class Relay:
             self._set_events(client)
             return
         try:
-            count = client.sock.send(client.output)
-        except InterruptedError:
+            # OpenSSL requires identical bytes across WANT retries, even if
+            # additional cached frames have since been appended to output.
+            if self.tls_context is not None and client.tls_write is None:
+                client.tls_write = bytes(client.output)
+            count = client.sock.send(client.tls_write if client.tls_write is not None else client.output)
+        except ssl.SSLWantReadError:
+            client.write_wants_read = True
+            self._set_events(client)
             return
-        except BlockingIOError:
+        except ssl.SSLWantWriteError:
+            client.write_wants_read = False
+            self._set_events(client)
+            return
+        except (InterruptedError, BlockingIOError):
             return
         except OSError:
             self._drop(client)
             return
+        client.tls_write = None
+        client.write_wants_read = False
         if count == 0:
             self._drop(client)
             return
@@ -227,6 +302,14 @@ class Relay:
     def _read(self, client):
         try:
             data = client.sock.recv(4096)
+        except ssl.SSLWantReadError:
+            client.read_wants_write = False
+            self._set_events(client)
+            return
+        except ssl.SSLWantWriteError:
+            client.read_wants_write = True
+            self._set_events(client)
+            return
         except InterruptedError:
             return
         except BlockingIOError:
@@ -234,6 +317,7 @@ class Relay:
         except OSError:
             self._drop(client)
             return
+        client.read_wants_write = False
         if not data:
             self._drop(client)
             return
@@ -260,7 +344,8 @@ class Relay:
             self._drop(client)
             return False
         del client.input[:newline + 1]
-        if (word not in ("HELLO", "HELLO2") or (self.e2ee_only and word != "HELLO2") or (own, peer) not in self.allowed):
+        if (word not in ("HELLO", "HELLO2") or (self.e2ee_only and word != "HELLO2") or (own, peer) not in self.allowed or
+                (self.tls_context is not None and client.auth_device != own)):
             self._drop(client)
             return False
         version = 2 if word == "HELLO2" else 1
@@ -462,12 +547,29 @@ class Relay:
 
     def run(self):
         while True:
-            for key, events in self.selector.select():
+            self._expire_clients()
+            # SSL may hold decrypted records even when the fd is not readable.
+            buffered = [c for c in self.clients.values()
+                        if self.tls_context is not None and not c.tls_handshake
+                        and c.sock.pending()]
+            for client in buffered:
+                if client.sock in self.clients:
+                    self._read(client)
+            for key, events in self.selector.select(timeout=0 if buffered else 0.5):
                 if key.fileobj is self.server:
                     self._accept()
                     continue
                 client = key.data
-                if events & selectors.EVENT_READ and client.sock in self.clients:
+                if client.sock not in self.clients:
+                    continue
+                if client.tls_handshake:
+                    self._tls_handshake(client)
+                    continue
+                if client.write_wants_read and events & selectors.EVENT_READ:
+                    self._write(client)
+                if client.sock not in self.clients:
+                    continue
+                if events & selectors.EVENT_READ or (client.read_wants_write and events & selectors.EVENT_WRITE):
                     self._read(client)
                 if events & selectors.EVENT_WRITE and client.sock in self.clients:
                     self._write(client)
@@ -482,7 +584,31 @@ def main():
     parser.add_argument("--pair", default="1:2")
     parser.add_argument("--max-pending", type=int, default=512)
     parser.add_argument("--max-completed", type=int, default=1024)
+    parser.add_argument("--tls-cert")
+    parser.add_argument("--tls-key")
+    parser.add_argument("--tls-ca")
+    parser.add_argument("--tls-devices", help="JSON SHA-256 leaf certificate fingerprint -> authorized device ID")
+    parser.add_argument("--handshake-timeout", type=float, default=10.0)
+    parser.add_argument("--max-clients", type=int, default=64)
+    parser.add_argument("--max-pending-connections", type=int, default=16)
     args = parser.parse_args()
+    tls_args = (args.tls_cert, args.tls_key, args.tls_ca, args.tls_devices)
+    context, devices = None, None
+    if any(value is not None for value in tls_args):
+        if not all(tls_args):
+            parser.error("mTLS requires --tls-cert, --tls-key, --tls-ca and --tls-devices; no TCP fallback")
+        try:
+            try:
+                from .tls_auth import server_context, load_devices
+            except ImportError:
+                from tls_auth import server_context, load_devices
+            context = server_context(args.tls_cert, args.tls_key, args.tls_ca)
+            devices = load_devices(args.tls_devices)
+        except (OSError, ValueError, ssl.SSLError):
+            parser.error("cannot load mTLS credentials or authorization map")
+    if (not 0 < args.handshake_timeout <= 300 or args.max_clients <= 0 or
+            args.max_pending_connections <= 0):
+        parser.error("invalid handshake timeout or connection limits")
     try:
         first, second = (int(value) for value in args.pair.split(":"))
     except ValueError:
@@ -493,7 +619,9 @@ def main():
         parser.error("queue limits must be positive")
     Relay(args.host, args.port, args.data,
           [(first, second), (second, first)],
-          args.max_pending, args.max_completed, e2ee_only=args.e2ee_only).run()
+          args.max_pending, args.max_completed, e2ee_only=args.e2ee_only,
+          tls_context=context, tls_devices=devices, handshake_timeout=args.handshake_timeout,
+          max_clients=args.max_clients, max_pending_connections=args.max_pending_connections).run()
 
 
 if __name__ == "__main__":

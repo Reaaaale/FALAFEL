@@ -23,6 +23,8 @@ struct messaging_controller {
     messaging_event events[MESSAGING_EVENT_CAPACITY];
     uint64_t next_request;
     char host[128], identity_path[1024], mailbox_path[1024], history_path[900];
+    char tls_ca[1024], tls_cert[1024], tls_key[1024], tls_name[254];
+    bool tls_required;
     bool create_history, full_reported;
     unsigned pump_cursor;
     uint16_t port;
@@ -346,6 +348,10 @@ static void *worker(void *user)
     }
     desktop_transport_init_frames(&c->transport,c->host,c->port,c->own,c->peer,receive_frame,c);
     transport_open=true;
+    if (c->tls_required && !desktop_transport_configure_tls(&c->transport,
+        c->tls_name, c->tls_ca, c->tls_cert, c->tls_key)) {
+        report(c,MESSAGING_AUTH_ERROR,true,0); goto done;
+    }
     falafel_mail_link_init(&c->link,&c->mailbox,c->own,c->peer,send_frame,&c->transport);
     bool legacy=c->mailbox.format_version==1;
     if(!legacy && falafel_mail_set_retention(&c->mailbox,falafel_history_retention(c->history))) {
@@ -408,6 +414,11 @@ messaging_controller *messaging_start(const messaging_config *config)
         strlen(config->host) >= 128 || strlen(config->identity_path) >= 1024 ||
         strlen(config->mailbox_path) >= 850 ||
         (config->history_path && strlen(config->history_path)>=900)) return NULL;
+    bool tls = config->tls_ca || config->tls_cert || config->tls_key || config->tls_server_name;
+    if (tls && (!config->tls_ca || !*config->tls_ca || strlen(config->tls_ca)>=1024 ||
+        !config->tls_cert || !*config->tls_cert || strlen(config->tls_cert)>=1024 ||
+        !config->tls_key || !*config->tls_key || strlen(config->tls_key)>=1024 ||
+        !config->tls_server_name || !*config->tls_server_name || strlen(config->tls_server_name)>=254)) return NULL;
     messaging_controller *c = calloc(1, sizeof(*c));
     if (!c) return NULL;
     atomic_init(&c->stop, false); atomic_init(&c->done, false); atomic_init(&c->accepting, false);
@@ -418,6 +429,11 @@ messaging_controller *messaging_start(const messaging_config *config)
     strcpy(c->mailbox_path, config->mailbox_path);
     if(config->history_path) strcpy(c->history_path,config->history_path);
     else snprintf(c->history_path,sizeof(c->history_path),"%s.history",config->mailbox_path);
+    c->tls_required=tls;
+    if (tls) {
+        strcpy(c->tls_ca,config->tls_ca); strcpy(c->tls_cert,config->tls_cert);
+        strcpy(c->tls_key,config->tls_key); strcpy(c->tls_name,config->tls_server_name);
+    }
     c->create_history=config->create_history;
     c->port = config->port; c->own = config->own; c->peer = config->peer;
     if (pthread_create(&c->thread, NULL, worker, c)) { free(c); return NULL; }

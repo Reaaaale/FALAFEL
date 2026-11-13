@@ -47,12 +47,10 @@ static int writable(int fd, int64_t deadline)
     }
 }
 
-int falafel_relay_tcp_open(const char *ipv4, uint16_t port,
-                          uint32_t own, uint32_t peer)
+int falafel_relay_socket_open(const char *ipv4, uint16_t port)
 {
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(port)};
-    if (!ipv4 || !port || !own || !peer || own == peer ||
-        inet_pton(AF_INET, ipv4, &address.sin_addr) != 1) {
+    if (!ipv4 || !port || inet_pton(AF_INET, ipv4, &address.sin_addr) != 1) {
         errno = EINVAL; return -1;
     }
     int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -76,6 +74,18 @@ int falafel_relay_tcp_open(const char *ipv4, uint16_t port,
         if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length)) goto failed;
         if (error) { errno = error; goto failed; }
     }
+    return fd;
+failed:
+    { int saved = errno; close(fd); errno = saved; }
+    return -1;
+}
+
+int falafel_relay_tcp_open(const char *ipv4, uint16_t port, uint32_t own, uint32_t peer)
+{
+    if (!own || !peer || own == peer) { errno = EINVAL; return -1; }
+    int64_t deadline = now_ms() + 5000;
+    int fd = falafel_relay_socket_open(ipv4, port);
+    if (fd < 0) return -1;
     char hello[64];
     int size = snprintf(hello, sizeof(hello), "HELLO2 %" PRIu32 " %" PRIu32 "\n", own, peer);
     if (size < 0 || (size_t)size >= sizeof(hello)) { errno = EINVAL; goto failed; }
@@ -125,7 +135,8 @@ bool falafel_relay_io_poll(falafel_relay_io *io, uint64_t now)
 #endif
         size_t count = io->output_size - io->output_offset;
         if (io->io_chunk && count > io->io_chunk) count = io->io_chunk;
-        ssize_t n = send(io->fd, io->output + io->output_offset, count, flags);
+        ssize_t n = io->write ? io->write(io->stream, io->output + io->output_offset, count) :
+            send(io->fd, io->output + io->output_offset, count, flags);
         if (n > 0) {
             io->output_offset += (size_t)n; io->write_deadline = now + 5000;
             if (io->output_offset == io->output_size) io->output_size = io->output_offset = 0;
@@ -134,7 +145,8 @@ bool falafel_relay_io_poll(falafel_relay_io *io, uint64_t now)
     for (unsigned step = 0; step < 4; ++step) {
         size_t count = sizeof(io->input) - io->input_size;
         if (io->io_chunk && count > io->io_chunk) count = io->io_chunk;
-        ssize_t n = recv(io->fd, io->input + io->input_size, count, 0);
+        ssize_t n = io->read ? io->read(io->stream, io->input + io->input_size, count) :
+            recv(io->fd, io->input + io->input_size, count, 0);
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return true;
         if (n <= 0) return false;
         io->input_size += (size_t)n; io->read_deadline = now + 5000;

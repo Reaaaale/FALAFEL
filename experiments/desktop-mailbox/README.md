@@ -69,12 +69,13 @@ ctest --test-dir build/tests -R encrypted_tcp_end_to_end --output-on-failure
 Run the full root suite in Debug, Release and ASan/UBSan as described in the main
 README. Local TCP socket permission is required. This is a desktop prototype;
 the C6 lab now integrates Wi-Fi, TCP, the same mailbox/link and NVS with explicit
-temporary credentials (cross-built and host-tested, not physically verified).
+temporary credentials (TCP/E2EE/reset recovery now physically confirmed by the user).
 See `docs/c6-relay-transport.md`; no headless wire format changes. The LVGL
 simulator now reuses this runtime architecture in a separate worker, with a
 encrypted persistent history, consumption after durable idempotent effects and
 archive-backed active-slot reuse. Its local FMBX v2 snapshots require the matching
 archive and cannot be used by this run mode; use fresh legacy fixture stores for
 these examples. The simulator explicitly migrates v1 stores with --init-history. See
-`simulator/README.md` for two-window commands and tests. TCP registration and routing metadata remain unauthenticated; no TLS or
-availability against a hostile relay is claimed.
+`simulator/README.md` for two-window commands and tests. This headless CLI remains a TCP test tool with unauthenticated routing. The C6
+and simulator now expose optional mTLS over the same frames; see `docs/mtls.md`.
+Availability against a hostile relay is not claimed.

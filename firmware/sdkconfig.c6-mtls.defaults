@@ -1,0 +1,11 @@
+# Load after storage + c6-lab defaults. External build and PEM paths required.
+CONFIG_FALAFEL_TLS_ENABLE=y
+CONFIG_MBEDTLS_HAVE_TIME=y
+CONFIG_MBEDTLS_HAVE_TIME_DATE=y
+# ECDSA P-256 laboratory PKI; TLS >= 1.2, no public root bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
+# Preserve the 0x100000 falafel_data offset and app partition size.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+# Upgrade existing provisioned devices only; never create missing E2EE state.
+CONFIG_FALAFEL_LAB_CREATE_MAILBOX=n

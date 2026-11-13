@@ -38,3 +38,20 @@ config FALAFEL_PRESET_TEXT
     default "Ciao dal Falafel ESP32-C6"
 endif
 endmenu
+
+menu "Falafel mTLS (separate lab mode)"
+config FALAFEL_TLS_ENABLE
+    bool "Require mTLS for relay transport (no TCP fallback)"
+    depends on FALAFEL_NETWORK_ENABLE
+    select MBEDTLS_HAVE_TIME
+    select MBEDTLS_HAVE_TIME_DATE
+    default n
+if FALAFEL_TLS_ENABLE
+config FALAFEL_TLS_SERVER_NAME
+    string "Expected relay DNS name or IP SAN (independent of connect IPv4)"
+    default "falafel-relay.lab"
+config FALAFEL_TLS_TIME_SERVER
+    string "Trusted LAN SNTP server for certificate validity checks"
+    default ""
+endif
+endmenu

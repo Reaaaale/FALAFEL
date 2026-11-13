@@ -11,6 +11,23 @@ use the reciprocal device credential on C6. See [C6 lab setup](../docs/c6-relay-
 The new local integration test exchanges messages with the C6 sources compiled
 on host/NVS model; it does not verify physical hardware or the Proxmox route.
 
+## Optional mTLS
+
+The existing GUI/mailbox/controller flow is unchanged. Supply all four options:
+`--tls-ca /external/ca.pem --tls-cert /external/simulator.pem
+--tls-key /external/simulator.key.pem --tls-server-name falafel-relay.lab`.
+The CA/name verification and client authentication use the existing Mbed TLS
+3.6.7 dependency. The expected TLS name/IP-SAN is independent of the connection
+`--host`, permitting the reviewed SSH tunnel. Key files must be owner-owned,
+regular, private (0600 or stricter), and stay external to the repository.
+Incomplete/empty options or verification errors never fall back to TCP. Omit
+ALL TLS options only when explicitly selecting the existing TCP lab configuration.
+
+Retain existing `--identity`, `--mailbox` and `--history`, with no reinitialization
+or concurrent writer. TLS cert/key differ from both C6's TLS key and the existing
+E2EE identity. See [complete credentials, hardware trial and rollback commands](../docs/mtls.md).
+Software normal/sanitized checks pass; physical mTLS is not yet tested.
+
 ## Build and run
 
 ```sh

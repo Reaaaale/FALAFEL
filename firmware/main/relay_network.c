@@ -5,6 +5,14 @@
 static const char *TAG = "falafel_network";
 #ifdef CONFIG_FALAFEL_NETWORK_ENABLE
 #include "relay_tcp.h"
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+#include "relay_tls.h"
+#include "esp_netif_sntp.h"
+#include <time.h>
+extern const unsigned char tls_ca[] asm("_binary_falafel_tls_ca_start");
+extern const unsigned char tls_cert[] asm("_binary_falafel_tls_cert_start");
+extern const unsigned char tls_key[] asm("_binary_falafel_tls_key_start");
+#endif
 #include "lab_messaging.h"
 #include "falafel_storage_espidf.h"
 #include "esp_event.h"
@@ -76,6 +84,9 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 
 static bool config_valid(void)
 {
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+    if (!strlen(CONFIG_FALAFEL_TLS_SERVER_NAME) || !strlen(CONFIG_FALAFEL_TLS_TIME_SERVER)) return false;
+#endif
     struct in_addr ip;
     size_t ssid = strlen(CONFIG_FALAFEL_WIFI_SSID);
     size_t password = strlen(CONFIG_FALAFEL_WIFI_PASSWORD);
@@ -91,6 +102,12 @@ static void network_worker(void *arg)
 {
     (void)arg;
     int fd = -1;
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+    falafel_tls *tls = NULL;
+    esp_sntp_config_t time_config = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_FALAFEL_TLS_TIME_SERVER);
+    time_config.wait_for_sync = true;
+    if (esp_netif_sntp_init(&time_config) != ESP_OK) { vTaskDelete(NULL); return; }
+#endif
     falafel_lab *lab = NULL;
     falafel_storage_espidf *store = NULL;
     falafel_relay_io io;
@@ -100,7 +117,11 @@ static void network_worker(void *arg)
     for (;;) {
         if (lab && !lab->mailbox.ready) break;
         if (!(xEventGroupGetBits(wifi_events) & WIFI_READY)) {
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+            falafel_tls_free(tls); tls = NULL;
+#endif
             if (fd >= 0) { close(fd); fd = -1; }
+            io.fd = -1;
             esp_err_t error = esp_wifi_connect();
             if (error != ESP_OK && error != ESP_ERR_WIFI_CONN)
                 ESP_LOGW(TAG, "Wi-Fi connect request failed: %s", esp_err_to_name(error));
@@ -141,19 +162,38 @@ static void network_worker(void *arg)
             resources();
         }
         if (fd < 0) {
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+            /* Never bypass certificate validity checks on a boot with no clock. */
+            if (time(NULL) < 1735689600 && esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15000)) != ESP_OK) {
+                ESP_LOGW(TAG, "TLS clock not synchronized; connection deferred");
+                continue;
+            }
+            tls = falafel_relay_tls_open(CONFIG_FALAFEL_RELAY_IPV4, CONFIG_FALAFEL_RELAY_PORT,
+                CONFIG_FALAFEL_TLS_SERVER_NAME, CONFIG_FALAFEL_DEVICE_ID, CONFIG_FALAFEL_PEER_ID,
+                tls_ca, strlen((const char *)tls_ca)+1, tls_cert, strlen((const char *)tls_cert)+1,
+                tls_key, strlen((const char *)tls_key)+1, &fd);
+#else
             fd = falafel_relay_tcp_open(CONFIG_FALAFEL_RELAY_IPV4, CONFIG_FALAFEL_RELAY_PORT,
                                        CONFIG_FALAFEL_DEVICE_ID, CONFIG_FALAFEL_PEER_ID);
+#endif
             if (fd < 0) {
                 ESP_LOGW(TAG, "Relay TCP unavailable (errno=%d); retry in 2s", errno);
                 vTaskDelay(pdMS_TO_TICKS(2000)); continue;
             }
             falafel_relay_io_init(&io, fd, falafel_lab_receive, lab);
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+            falafel_relay_tls_attach(&io, tls);
+            ESP_LOGI(TAG, "mTLS relay identity verified; client certificate presented");
+#endif
             falafel_mail_link_connected(&lab->link);
             ESP_LOGI(TAG, "TCP connected; HELLO2 written own=%u peer=%u; awaiting E2EE receipt",
                      (unsigned)CONFIG_FALAFEL_DEVICE_ID, (unsigned)CONFIG_FALAFEL_PEER_ID);
         }
         uint64_t now = (uint64_t)(esp_timer_get_time() / 1000);
         if (!falafel_relay_io_poll(&io, now)) {
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+            falafel_tls_free(tls); tls = NULL;
+#endif
             close(fd); fd = -1;
             io.fd = -1;
             ESP_LOGW(TAG, "Relay TCP closed; registration will be retried");
@@ -164,6 +204,10 @@ static void network_worker(void *arg)
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+    falafel_tls_free(tls);
+    esp_netif_sntp_deinit();
+#endif
     if (fd >= 0) close(fd);
     if (store_open) falafel_storage_espidf_close(store);
     if (lab) { falafel_lab_close(lab); free(lab); }
@@ -201,7 +245,12 @@ void falafel_relay_network_start(void)
     memset(&config, 0, sizeof(config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    ESP_ERROR_CHECK(xTaskCreate(network_worker, "relay_network", 8192, NULL, 5, NULL) == pdPASS
+#ifdef CONFIG_FALAFEL_TLS_ENABLE
+    const uint32_t worker_stack = 12288;
+#else
+    const uint32_t worker_stack = 8192;
+#endif
+    ESP_ERROR_CHECK(xTaskCreate(network_worker, "relay_network", worker_stack, NULL, 5, NULL) == pdPASS
                     ? ESP_OK : ESP_ERR_NO_MEM);
 }
 #else

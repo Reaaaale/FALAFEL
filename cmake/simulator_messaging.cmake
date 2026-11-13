@@ -10,6 +10,7 @@ FetchContent_Declare(mbedtls
 FetchContent_MakeAvailable(mbedtls)
 set(FALAFEL_REPO "${CMAKE_CURRENT_LIST_DIR}/..")
 add_library(simulator_messaging STATIC
+    ${FALAFEL_REPO}/shared/network/falafel_tls.c
     ${FALAFEL_REPO}/simulator/src/messaging_controller.c
     ${FALAFEL_REPO}/simulator/src/desktop_transport.c
     ${FALAFEL_REPO}/shared/crypto/falafel_crypto_mbedtls.c
@@ -26,4 +27,4 @@ target_include_directories(simulator_messaging PUBLIC
     ${FALAFEL_REPO}/shared/include ${FALAFEL_REPO}/simulator/src)
 target_compile_features(simulator_messaging PUBLIC c_std_11)
 target_compile_options(simulator_messaging PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(simulator_messaging PUBLIC MbedTLS::mbedcrypto Threads::Threads)
+target_link_libraries(simulator_messaging PUBLIC MbedTLS::mbedtls MbedTLS::mbedx509 MbedTLS::mbedcrypto Threads::Threads)

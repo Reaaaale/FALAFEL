@@ -29,6 +29,7 @@ static uint64_t monotonic_ms(void)
 
 static void disconnect_transport(desktop_transport_t *transport)
 {
+    falafel_tls_free(transport->tls); transport->tls = NULL;
     if (transport->fd >= 0) {
         close(transport->fd);
     }
@@ -131,7 +132,7 @@ static void begin_connection(desktop_transport_t *transport)
                      (struct sockaddr *)&transport->resolved_address,
                      transport->resolved_length);
     if (result == 0) {
-        transport->state = DESKTOP_TRANSPORT_HANDSHAKE;
+        transport->state = transport->tls_required ? DESKTOP_TRANSPORT_TLS_HANDSHAKE : DESKTOP_TRANSPORT_HANDSHAKE;
     } else if (errno == EINPROGRESS) {
         transport->state = DESKTOP_TRANSPORT_CONNECTING;
     } else {
@@ -182,7 +183,7 @@ static void finish_connection(desktop_transport_t *transport)
         disconnect_transport(transport);
         return;
     }
-    transport->state = DESKTOP_TRANSPORT_HANDSHAKE;
+    transport->state = transport->tls_required ? DESKTOP_TRANSPORT_TLS_HANDSHAKE : DESKTOP_TRANSPORT_HANDSHAKE;
 }
 
 static bool queue_bytes(desktop_transport_t *transport, const uint8_t *data,
@@ -215,11 +216,11 @@ static void queue_handshake(desktop_transport_t *transport)
 static void write_pending(desktop_transport_t *transport)
 {
     while (transport->output_offset < transport->output_length) {
-        ssize_t count = send(transport->fd,
-                             transport->output + transport->output_offset,
-                             (transport->io_chunk && transport->io_chunk < transport->output_length - transport->output_offset) ?
-                             transport->io_chunk : transport->output_length - transport->output_offset,
-                             MSG_NOSIGNAL);
+        size_t size = transport->output_length - transport->output_offset;
+        if (transport->io_chunk && size > transport->io_chunk) size = transport->io_chunk;
+        ssize_t count = transport->tls ?
+            falafel_tls_write(transport->tls, transport->output + transport->output_offset, size) :
+            send(transport->fd, transport->output + transport->output_offset, size, MSG_NOSIGNAL);
         if (count > 0) {
             transport->output_offset += (size_t)count;
             transport->progress_deadline_ms = monotonic_ms() + CONNECT_TIMEOUT_MS;
@@ -252,9 +253,10 @@ static void read_available(desktop_transport_t *transport)
              * this batch before reading more instead of dropping valid data. */
             break;
         }
-        count = recv(transport->fd,
-                     transport->input + transport->input_length,
-                     (transport->io_chunk && transport->io_chunk < available) ? transport->io_chunk : available, 0);
+        if (transport->io_chunk && available > transport->io_chunk) available = transport->io_chunk;
+        count = transport->tls ?
+            falafel_tls_read(transport->tls, transport->input + transport->input_length, available) :
+            recv(transport->fd, transport->input + transport->input_length, available, 0);
         if (count > 0) {
             transport->progress_deadline_ms = monotonic_ms() + CONNECT_TIMEOUT_MS;
             transport->input_length += (size_t)count;
@@ -308,7 +310,8 @@ static void read_available(desktop_transport_t *transport)
 
 void desktop_transport_poll(desktop_transport_t *transport)
 {
-    if (transport->state == DESKTOP_TRANSPORT_HANDSHAKE &&
+    if ((transport->state == DESKTOP_TRANSPORT_HANDSHAKE ||
+         transport->state == DESKTOP_TRANSPORT_TLS_HANDSHAKE) &&
         monotonic_ms() >= transport->connect_deadline_ms) disconnect_transport(transport);
     if (transport->state == DESKTOP_TRANSPORT_CONNECTED &&
         (transport->output_length || transport->input_length) &&
@@ -321,6 +324,13 @@ void desktop_transport_poll(desktop_transport_t *transport)
     }
     if (transport->state == DESKTOP_TRANSPORT_CONNECTING) {
         finish_connection(transport);
+    }
+    if (transport->state == DESKTOP_TRANSPORT_TLS_HANDSHAKE) {
+        if (!transport->tls) transport->tls = falafel_tls_files(transport->fd,
+            transport->tls_name, transport->tls_ca, transport->tls_cert, transport->tls_key);
+        int result = falafel_tls_handshake(transport->tls);
+        if (result < 0) disconnect_transport(transport);
+        else if (result > 0) transport->state = DESKTOP_TRANSPORT_HANDSHAKE;
     }
     if (transport->state == DESKTOP_TRANSPORT_HANDSHAKE &&
         transport->output_length == 0U) {
@@ -651,4 +661,18 @@ bool desktop_transport_send_frame(void *u, const uint8_t *p, size_t n)
     if(!t->on_frame || !desktop_transport_is_connected(t) || !p || n<30 || n>286) return false;
     size=htonl((uint32_t)n); memcpy(wire,&size,4); memcpy(wire+4,p,n);
     return queue_bytes(t,wire,n+4);
+}
+
+bool desktop_transport_configure_tls(desktop_transport_t *t, const char *name,
+    const char *ca, const char *cert, const char *key)
+{
+    /* Even a rejected configuration never silently downgrades this transport. */
+    t->tls_required = true;
+    if (!name || !*name || strlen(name) >= sizeof(t->tls_name) ||
+        !ca || !*ca || strlen(ca) >= sizeof(t->tls_ca) ||
+        !cert || !*cert || strlen(cert) >= sizeof(t->tls_cert) ||
+        !key || !*key || strlen(key) >= sizeof(t->tls_key)) return false;
+    strcpy(t->tls_name, name); strcpy(t->tls_ca, ca);
+    strcpy(t->tls_cert, cert); strcpy(t->tls_key, key);
+    return true;
 }

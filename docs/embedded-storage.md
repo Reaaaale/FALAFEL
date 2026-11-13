@@ -11,6 +11,11 @@ of these storage tests, until device entropy and key protection are verified.
 See [SEC-002](security/SEC-002.md). The 5.5.2 results below are historical; new
 storage-probe builds use [the isolated firmware commands](../firmware/README.md).
 
+Optional [mTLS](mtls.md) stores its external PEM credentials in the private
+firmware app image. It does not allocate an NVS namespace or change/write the
+`falafel_data` partition. TLS upgrades/rollback use app-only flashing; preserve
+current mailbox/identity data and do not restore stale NVS snapshots.
+
 ## Choice and contract
 
 | Option | Assessment |

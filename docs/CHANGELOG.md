@@ -1,5 +1,37 @@
 # Falafel development changelog
 
+## 2026-11-12 — Optional mTLS for relay, C6 and simulator
+
+- Added standard-library SSLContext/CERT_REQUIRED relay mode with nonblocking
+  selector handshake/I/O, TLS >=1.2, leaf SHA-256 fingerprint authorization of
+  routing IDs, combined TLS/HELLO deadlines, connection bounds and SSL pending
+  record draining. Invalid certificates/ID claims cannot evict the existing
+  owner; valid same-ID reset replacement remains supported. No TCP downgrade.
+- Added shared Mbed TLS client verifier/I/O and integrated it below existing
+  C6 and simulator stream framing. C6 uses explicit external PEM app embedding,
+  private off-repository builds, CA/name/date checks and trusted-LAN SNTP;
+  no NVS/partition or E2EE identity/protocol/receipt changes. The TLS overlay
+  selects size optimization/client-only TLS and disables mailbox creation.
+- Added external-only P-256 CA/server/C6/Mac PKI generator, server SANs,
+  clientAuth/serverAuth separation, private output permissions, overwrite refusal
+  and ignore guards. Simulator accepts external PEM/name options and rejects
+  partial/empty settings without falling back. GUI rendering is unchanged.
+- Verification: normal/sanitized host 20/20 each, normal/sanitized simulator 4/4
+  each PASS; 17-case TLS suite passes, including actual C verifier rejection
+  cases. C6/SDL integration runs both TCP and genuine bidirectional E2EE over
+  mTLS with partial I/O, disconnect/reopen and unchanged deduplication. Relevant
+  tests rerun after final CLI/validation changes. C6 IDF 5.5.6 TCP build PASS;
+  optimized mTLS image 877,600 B, app margin 105,440 B; static DIRAM used
+  158,640 B, not runtime heap. No sanitizer instrumentation of Python.
+- Updated guides/status/protocol/architecture and added `docs/mtls.md` with exact
+  separate LXC 100 sidecar staging, SSH forwarding, manual app-only hardware
+  trial, backups/rollback and residual risks. Existing TCP/E2EE/reset milestone
+  is user-confirmed. No server access/deployment, systemd/firewall/router edits,
+  hardware flash, real credential import, existing-store modifications or commits.
+- Physical mTLS, heap/stack/time validation, protected keys, production
+  enrollment, automated renewal/revocation and NVS power-cut/GC remain pending.
+
+
 ## 2026-11-11 — Relay reconnect after C6 hardware reset
 
 - Fixed `relay/falafel_relay.py`: validated same-ID/peer/version registration

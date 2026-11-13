@@ -1,3 +1,26 @@
 idf_component_register(SRCS "main.c" "relay_network.c" "relay_tcp.c" "lab_messaging.c"
-    INCLUDE_DIRS "." REQUIRES falafel_storage esp_wifi esp_netif esp_event nvs_flash esp_timer lwip)
+    INCLUDE_DIRS "." "../../shared/include" REQUIRES falafel_storage esp_wifi esp_netif esp_event nvs_flash esp_timer lwip)
 
+
+if(CONFIG_FALAFEL_TLS_ENABLE)
+    # Credentials and all resulting ELF/bin/generated assembly stay external.
+    get_filename_component(falafel_repo "${CMAKE_CURRENT_LIST_DIR}/../.." REALPATH)
+    get_filename_component(falafel_build "${CMAKE_BINARY_DIR}" REALPATH)
+    string(FIND "${falafel_build}/" "${falafel_repo}/" inside_build)
+    if(inside_build EQUAL 0)
+        message(FATAL_ERROR "mTLS builds contain private keys: use an off-repository build directory")
+    endif()
+    file(CHMOD "${CMAKE_BINARY_DIR}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+    foreach(kind CA CERT KEY)
+        set(FALAFEL_TLS_${kind}_FILE "" CACHE FILEPATH "External C6 TLS ${kind} PEM")
+        get_filename_component(source "${FALAFEL_TLS_${kind}_FILE}" REALPATH)
+        string(FIND "${source}/" "${falafel_repo}/" inside_source)
+        if(NOT EXISTS "${source}" OR IS_DIRECTORY "${source}" OR inside_source EQUAL 0)
+            message(FATAL_ERROR "Set FALAFEL_TLS_${kind}_FILE to an existing external PEM")
+        endif()
+        string(TOLOWER "${kind}" lower_kind)
+        target_add_binary_data(${COMPONENT_LIB} "${source}" TEXT RENAME_TO "falafel_tls_${lower_kind}")
+    endforeach()
+    target_sources(${COMPONENT_LIB} PRIVATE relay_tls.c ../../shared/network/falafel_tls.c)
+    target_link_libraries(${COMPONENT_LIB} PUBLIC idf::mbedtls)
+endif()

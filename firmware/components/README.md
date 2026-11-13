@@ -13,5 +13,8 @@ ACK/delivery authority; `relay_network.c` owns its Wi-Fi/TCP task and the NVS ha
 The optional C6 lab worker loads an explicitly provisioned temporary identity,
 creates/reopens the lab mailbox, retries persisted ciphertext and verifies peer
 receipts. Shared GUI and Message Manager are not integrated into firmware.
-Hardware exchange and physical NVS validation remain pending. See
+The user confirms TCP/E2EE hardware exchange/reset recovery; physical NVS
+power-cut validation and new mTLS acceptance remain pending. The optional mTLS
+worker uses `../../shared/network/falafel_tls.c` through `relay_tls.c`; external
+PEMs reside in app flash, never in the E2EE NVS partition. See
 [lab procedure](../../docs/c6-relay-transport.md).

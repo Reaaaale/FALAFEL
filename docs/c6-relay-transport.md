@@ -1,12 +1,15 @@
 # ESP32-C6 E2EE lab runtime
 
-## Status (2026-11-11)
+## Status (2026-11-12)
 
 The user confirms successful real bidirectional ESP32-C6 (ID 1) <-> relay in
-Proxmox LXC 100 <-> Mac simulator (ID 2) E2EE. The relay reset/reconnect fix is
-locally verified; remote deployment and physical RESET/EN acceptance are pending.
+Proxmox LXC 100 <-> Mac simulator (ID 2) E2EE, including reset recovery.
+Optional mTLS is now implemented and software-verified; its deployment and
+physical acceptance are pending. See [mTLS credential/build/app-only flash,
+sidecar deployment and rollback](mtls.md).
 See [relay-only deployment and rollback](../relay/README.md#manual-deployment-to-proxmox-lxc-100).
-The historical commissioning observations below describe the earlier session.
+The rest of this document describes the original TCP commissioning session;
+use `mtls.md` for new TLS configuration instead of the historical proxy proposal.
 The new automated integration runs the actual C6 mailbox/stream sources on the
 host with an NVS API model, the unchanged relay and real SDL/LVGL simulator.
 It is not evidence of Wi-Fi, physical NVS or hardware entropy operation.
@@ -17,7 +20,8 @@ falafel_mailbox/falafel_mail_link/provider/NVS callbacks. It parses the unchange
 ciphertext, and recovers saved receipts on reconnect. Only a verified E2EE receipt
 and successful mailbox commit logs DELIVERED_AUTHENTICATED; TCP writes and HELLO2
 never do. The new Message Manager is not used. Crypto diagnostic/SAR ownership,
-E2EE formats are unchanged; relay registration now replaces stale same-ID sessions. No TLS/mTLS in this phase.
+E2EE formats are unchanged; relay registration replaces stale same-ID sessions.
+The historical TCP phase omitted TLS; the optional mTLS mode is documented separately.
 
 ## Identity and persistence contract
 
@@ -72,7 +76,7 @@ IPv4 only. No hostname/IPv6/open Wi-Fi. Credentials live in the external build's
 sdkconfig, generated headers and firmware image: keep these artifacts private.
 
 The lab overlay explicitly permits initial mailbox creation and removes the
-unused public CA bundle (no TLS). After initial creation you may disable
+unused public CA bundle (the optional TLS mode uses an explicit private CA). After initial creation you may disable
 FALAFEL_LAB_CREATE_MAILBOX so missing mailbox state fails rather than creating it.
 Existing corrupt/mismatched state is always an error, never automatically erased.
 Wi-Fi credentials are RAM-configured, SDK nvs remains separate from falafel_data.

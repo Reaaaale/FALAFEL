@@ -1,23 +1,35 @@
 # Falafel project status
 
-Last updated: 2026-11-11
+Last updated: 2026-11-12
 
 ## Current status
 
-2026-11-11 — The user reports successful real bidirectional E2EE between
-ESP32-C6 (ID 1), Proxmox LXC 100 relay and Mac simulator (ID 2).
-The reset/reconnect defect is fixed locally: a valid same-ID/peer/version
-registration closes the previous transport, then rebuilds replay from unchanged
-durable state. Lost FIN/RST no longer leaves the ID permanently occupied.
-Firmware socket cleanup was reviewed; no firmware change or rebuild is needed.
-Host builds pass; all 19 checks in each normal/ASan/UBSan suite pass after the
-new test's TCP synchronization corrections; relay regression passes five
-consecutive runs per configuration (15 cases each). C sanitizer instrumentation
-covers the host adapters, not the Python relay. Deployment and physical RESET/EN
-acceptance of this fix are pending. No remote service, identity or stored data
-was modified. See [relay behavior and deployment](../relay/README.md).
+2026-11-12 — Optional mTLS is implemented for the Python relay, ESP32-C6
+and macOS simulator. The existing TCP/E2EE bidirectional/reset milestone is
+confirmed physically by the user and remains available. mTLS is software-verified
+only: host normal/ASan/UBSan 20/20 each; simulator normal/sanitized 4/4 each;
+17-case TLS suite and actual C6-source/SDL bidirectional E2EE/reopen integration
+pass. New tests were rerun after final validation/CLI corrections. Fresh C6 TCP
+and mTLS builds pass on IDF 5.5.6; mTLS image 877,600 B, app margin 105,440 B.
+TLS CA/server/client keys are separate from existing E2EE identities. The relay
+requires a trusted client certificate AND fingerprint-to-ID authorization before
+session replacement. Both C clients verify the server CA/name; C6 certificate
+validity checks require a trusted clock. Credentials are external; C6 app-flash
+storage leaves the partition table and falafel_data unchanged. No GUI, E2EE,
+mailbox-format or identity changes. No device flash, server deployment/access,
+firewall/router/systemd change or real credential import was performed.
+
+Pending: reviewed sidecar deployment and physical mTLS acceptance; measure
+runtime heap/stack, clock bootstrap and reset behavior on hardware. No automatic
+TCP fallback; no Secure Boot/Flash Encryption, automatic certificate renewal,
+protected-key/production identity approval or authenticated SNTP. Cache retention,
+NVS power-cut/GC and S3 validation remain open. See [mTLS architecture, software
+results and exact manual deployment/hardware/rollback commands](mtls.md).
 
 ### Historical checkpoints (superseded by the current status above)
+
+2026-11-11 — Relay stale-session reconnect corrected and software verified;
+subsequent physical bidirectional/reset acceptance is confirmed by the user.
 
 2026-11-08 — C6 lab runtime implemented, software verification complete;
 **physical C6 -> Proxmox -> Mac milestone NOT COMPLETE**. Existing mailbox/link,
@@ -123,6 +135,10 @@ cryptography, relay implementation, protocol or mailbox format.
 
 ## Implemented features
 
+- Optional mTLS for relay/C6/simulator, explicit certificate fingerprint-to-ID
+  authorization, bounded nonblocking handshakes and separate external TLS PKI.
+  Existing plaintext TCP transport remains an explicitly selected lab mode.
+
 - Isolated official IDF 5.5.6 tools/venv, pinned child-process wrapper and
   reproducible SEC-002 source/configuration/ELF evidence verifier. Application
   sources and existing generated configs remain unchanged.
@@ -161,6 +177,10 @@ cryptography, relay implementation, protocol or mailbox format.
   backend, explicit unpair, and optional local identity rotation.
 
 ## Verified functionality
+
+- 2026-11-12: mTLS software checks pass (20/20 host normal and sanitized,
+  4/4 simulator normal and sanitized, C6 TLS/TCP cross-builds); actual hardware
+  mTLS is NOT RUN. The existing TCP/E2EE hardware/reset milestone is user-confirmed.
 
 - SEC-002: clean C6 firmware/crypto builds (0x2e390 / 0x3b810), normal host
   16/16, ASan/UBSan 16/16 (vendor also instrumented), simulator 4/4 using the
@@ -235,6 +255,12 @@ have been verified locally but have not yet run in GitHub Actions.
 
 ## Current architecture
 
+Optional TLS wraps the existing framed transport below mailbox/link. The Python
+relay uses SSLContext/DefaultSelector; C6 and simulator share the Mbed TLS client
+adapter. Only authenticated/authorized registration can replace an mTLS owner.
+The plain TCP mode, E2EE crypto and persisted data formats are unchanged. See
+[the transport boundary and diagram](mtls.md#boundary-and-implementation).
+
 See `docs/architecture.md`. Legacy test application events pass through the portable core, versioned
 protocol, desktop transport and durable relay. The interactive simulator uses
 the encrypted mailbox/link through a dedicated worker instead. Platform persistence
@@ -267,9 +293,13 @@ receive effects before consume; replay archive persists before active-slot reuse
   requires its matching archive; default APIs never delete replay history.
   Storage rollback/malicious edits are not prevented. Other external consumers
   still need durable sender/ID idempotence before consume.
-- Legacy v1 test traffic is cleartext. GUI/headless v2 content is E2EE, but TCP
-  registration/routing remain unauthenticated and lack TLS. Use --e2ee-only for
-  the encrypted relay instance; default mixed mode also accepts legacy traffic.
+- Plain TCP mode has unauthenticated routing. Optional mTLS authenticates the
+  relay and certificate-authorized IDs but does not hide metadata from the relay.
+  Use --e2ee-only as well as TLS for the encrypted lab instance. The headless
+  mailbox_peer CLI remains a TCP test tool; C6 and GUI expose explicit TLS options.
+- Physical mTLS, runtime resource margins, trusted time and protected keys are
+  pending; keys remain extractable from firmware/files without Flash Encryption.
+  Manual allowlist rotation/restart is implemented; automated renewal is not.
 - The v2 relay cache retains data and receipts without automatic reclamation.
   Configure capacity for both; authenticated epoch/compaction is future work.
 - Deduplication history is bounded to 64 device identities and 1,024 relay
@@ -287,8 +317,8 @@ receive effects before consume; replay archive persists before active-slot reuse
   slow platforms extend playback. ESP32-S3 flash/PSRAM and timing need validation.
 - ESP-IDF storage adapter is implemented and C6 cross-built; physical NVS
   power-cut/GC/wear and S3 validation remain pending. The user reports successful
-  physical C6 lab bidirectional E2EE; the relay reconnect fix still needs deployment
-  and physical reset acceptance. Other hardware/GUI adapters are not integrated. Embedded crypto remains blocked for real keys.
+  physical C6 lab bidirectional E2EE and reset recovery; mTLS still needs
+  separate deployment and physical acceptance. Other hardware/GUI adapters are not integrated. Embedded crypto remains blocked for real keys.
 - Pairing and identity persistence are implemented only as a desktop prototype;
   production identity loading is not implemented. GUI integration uses trusted
   fixture identity files generated explicitly; neither GUI nor headless runtime
@@ -334,9 +364,9 @@ receive effects before consume; replay archive persists before active-slot reuse
 - Decide whether a small Mbed TLS/provider backend for the Noise-C state machine
   is maintainable, then repeat vectors for that backend.
 - Define authenticated retention/epochs and persistence rollback/replay policy.
-- Production relay authentication and transport security.
-- Deploy the reviewed relay reconnect fix and repeat physical C6 RESET/EN
-  without restarting the service; production identity/backup/key-rotation integration.
+- Physical mTLS acceptance and production certificate lifecycle/protected-key hardening.
+- Stage the independent mTLS relay and repeat physical C6 RESET/EN without
+  restarting it; production identity/backup/key-rotation integration.
 - Validate the implemented NVS adapter physically on C6, then cross-build/test
   on S3 with a verified crypto baseline; measure real capacity and wear.
 - Validate storage wear, real power-cut recovery, archive/relay capacity and
@@ -348,13 +378,14 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
-Review the relay-only deployment commands in `relay/README.md`, update LXC 100
-manually, then repeat C6 RESET/EN several times without restarting falafel-relay.
-Verify RESTORED, stable registration, reverse authenticated delivery and no new
-message IDs or duplicate GUI rows. The original physical bidirectional exchange
-is user-confirmed; acceptance of this correction remains pending.
+Review [the separate mTLS deployment/hardware/rollback procedure](mtls.md).
+Keep the current Proxmox 8765 service/proxy intact; stage an independent TLS
+listener/cache on 8766 and use the documented temporary SSH forwarding for the
+hardware trial. Reuse existing E2EE stores, change only the app firmware after
+backup/authorization, and verify TLS identity, authenticated receipts, repeated
+reset/reconnect and runtime heap/stack margins. mTLS physical acceptance is open.
 
-Plan 3C.3 production identity loading/rotation, relay authentication/TLS and
+Plan 3C.3 production identity loading/rotation, TLS certificate lifecycle and
 safe retention/epoch design. Desktop durable history/consumption is implemented;
 the software baseline is now validated. Next test runtime entropy and NVS
 power cuts/GC on C6.
@@ -365,6 +396,10 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-12 — mTLS implementation and software verification complete for
+relay/C6/simulator, retaining the user-confirmed TCP/E2EE/reset milestone.
+Physical mTLS and deployment remain pending; see `mtls.md`.
 
 2026-11-11 — Relay stale-session reconnect corrected and locally verified;
 real bidirectional C6/Proxmox/Mac exchange confirmed by the user. Deployment and

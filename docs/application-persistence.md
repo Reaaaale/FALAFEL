@@ -10,7 +10,9 @@ pending. The C6 lab now has explicit temporary identity import and a mailbox
 consumer without archive retirement; the full history consumer remains desktop.
 Embedded use stays restricted to disposable lab identities/data. See [embedded storage](embedded-storage.md)
 for backend selection, atomicity assumptions and physical test checklist.
-The E2EE provider and relay implementation are reused unchanged.
+The E2EE provider and stored mailbox/history formats are unchanged. Optional
+[mTLS](mtls.md) wraps transport below the mailbox; its credentials are separate
+and do not replace E2EE identities or write to the C6 mailbox partition.
 
 ## Ownership and storage
 

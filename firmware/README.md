@@ -5,7 +5,9 @@ FreeRTOS worker owning Wi-Fi, v2 TCP framing, the unchanged E2EE mailbox/link,
 Mbed TLS provider and NVS persistence. One preset is queued once per provisioned
 mailbox; only an authenticated peer receipt durably completes it. Reconnect and
 reboot reuse saved IDs/ciphertext. Incoming data is authenticated and consumed
-persistently with ID-only diagnostics. No GUI, Message Manager or TLS/mTLS.
+persistently with ID-only diagnostics. No GUI or Message Manager. Optional mTLS
+uses the existing Mbed TLS baseline, with mandatory server CA/name/date checks
+and a C6-specific client certificate. Default networking/TLS remain off.
 
 Lab credentials are imported from an external 64-byte identity using a private
 NVS image; never embed them in source. Default networking is off; the explicit
@@ -14,9 +16,19 @@ state is never overwritten by boot. Its eight lifetime IDs/direction are not an
 unbounded archive. Wi-Fi NVS and falafel_data remain distinct, with no automatic
 erase. See [exact build/provision/flash/monitor commands and proposed Proxmox
 LAN path](../docs/c6-relay-transport.md). The user confirms real bidirectional C6/Proxmox/Mac E2EE. The relay-only
-reset/reconnect fix needs deployment and physical reset acceptance; firmware
-already closes sockets on connection errors and before reconnecting.
+reset/reconnect behavior is also user-confirmed. The new mTLS mode is
+software-verified and needs a separate deployment/hardware acceptance run.
 The RF-disabled crypto diagnostic remains a separate unchanged executable.
+
+For mTLS, load `sdkconfig.c6-mtls.defaults` after storage/lab defaults and pass
+external `FALAFEL_TLS_CA_FILE`, `FALAFEL_TLS_CERT_FILE`, `FALAFEL_TLS_KEY_FILE`.
+Use a new private off-repository build: its app/ELF embeds these TLS PEMs in
+flash without touching NVS or changing partitions. The overlay disables mailbox
+creation, selects size optimization/client-only TLS and requires certificate
+expiry checks plus a configured LAN SNTP server. Credentials missing or TLS
+verification failing never trigger TCP fallback. Secure Boot/Flash Encryption
+remain disabled. See [exact configuration, app-only flash, backup, hardware test
+and rollback commands](../docs/mtls.md). The commands were not executed on hardware.
 
 **Development baseline: ESP-IDF 5.5.6 / Mbed TLS 3.6.7, validated on C6 by
 [SEC-002](../docs/security/SEC-002.md). Permanent real identities: NO-GO.**

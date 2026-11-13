@@ -38,3 +38,11 @@ __pycache__/
 # Simulator build artifacts
 
 /simulator/build/
+
+# External mTLS provisioning artifacts must never be committed
+*.pem
+*.p12
+*.pfx
+*.csr
+*.key
+/tls-credentials/
