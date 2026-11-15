@@ -35,9 +35,12 @@ void falafel_gui_set_battery_percent(uint8_t percent);
 void falafel_gui_set_unread_count(uint16_t count);
 
 /** Start an adjacent-personality rotation; false at limits or while busy.
- * Selection and on_personality_changed are committed after the last frame. */
+ * Next traverses the frame cycle backwards; previous advances it.
+ * Selection/callback commit after a full turn; the displayed pose is retained. */
 bool falafel_gui_next_personality(void);
 bool falafel_gui_previous_personality(void);
+/** Input adapters can discard a gesture that begins during playback. */
+bool falafel_gui_is_personality_animating(void);
 /** Apply synchronized state without firing the local-change callback. */
 bool falafel_gui_set_personality_remote(falafel_personality_t personality);
 

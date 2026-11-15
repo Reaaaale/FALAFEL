@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef FALAFEL_GUI_HEARTBEAT_LIMIT_MS
+#define FALAFEL_GUI_HEARTBEAT_LIMIT_MS 200
+#endif
+
 static void pointer(SDL_Window *w, Uint32 type, int x, int y)
 {
     SDL_Event e = {0}; e.type = type;
@@ -23,6 +27,12 @@ static void wheel(SDL_Window *w, float x)
     SDL_Event e={0}; e.type=SDL_MOUSEWHEEL; e.wheel.windowID=SDL_GetWindowID(w);
     e.wheel.timestamp=SDL_GetTicks(); e.wheel.preciseX=x; e.wheel.x=(int)x;
     e.wheel.direction=SDL_MOUSEWHEEL_NORMAL; SDL_PushEvent(&e);
+}
+static void flipped_wheel(SDL_Window *w, float x)
+{
+    SDL_Event e={0}; e.type=SDL_MOUSEWHEEL; e.wheel.windowID=SDL_GetWindowID(w);
+    e.wheel.timestamp=SDL_GetTicks(); e.wheel.preciseX=x; e.wheel.x=(int)x;
+    e.wheel.direction=SDL_MOUSEWHEEL_FLIPPED; SDL_PushEvent(&e);
 }
 static int capture(lv_display_t *d, const char *name)
 {
@@ -51,8 +61,11 @@ static int capture(lv_display_t *d, const char *name)
 }
 /* Observe real draws, not just timer advances. This catches skipped frames. */
 static uint32_t drawn_frames, changes, heartbeat_count, heartbeat_gap, last_heartbeat;
-static uint32_t first_frame_ms;
-static bool invalid_frame_order;
+static uint32_t first_frame_ms, timed_start_ms;
+static bool invalid_frame_order, invalid_duration;
+static int rotation_direction = -1;
+static int last_drawn_frame = -1;
+static uint8_t initial_pose, interrupted_pose;
 static lv_timer_t *heartbeat_timer;
 static falafel_gui_callbacks_t original_callbacks;
 
@@ -67,10 +80,22 @@ static void frame_drawn(lv_event_t *event)
     if (!falafel_gui.personality_animating) return;
     if (!drawn_frames) first_frame_ms = SDL_GetTicks();
     uint32_t bit = 1u << falafel_gui.rotation_frame;
-    if (!(drawn_frames & bit) && drawn_frames != bit - 1) invalid_frame_order = true;
+    if (last_drawn_frame >= 0 && last_drawn_frame != falafel_gui.rotation_frame &&
+        falafel_gui.rotation_frame != (last_drawn_frame + rotation_direction +
+            FALAFEL_ROTATION_FRAME_COUNT) % FALAFEL_ROTATION_FRAME_COUNT)
+        invalid_frame_order = true;
+    last_drawn_frame = falafel_gui.rotation_frame;
     if (lv_image_get_src(character()) != &falafel_asset_rotation[falafel_gui.rotation_frame])
         invalid_frame_order = true;
     drawn_frames |= bit;
+}
+
+static void observe_rotation(int direction)
+{
+    drawn_frames=0;
+    last_drawn_frame=-1;
+    invalid_frame_order=false;
+    rotation_direction=direction;
 }
 
 static void heartbeat(lv_timer_t *timer)
@@ -86,8 +111,20 @@ static void heartbeat(lv_timer_t *timer)
 static void personality_changed(falafel_personality_t selected, void *data)
 {
     ++changes;
-    printf("[UI] rotation completed after %u ms from first draw\n",
-           SDL_GetTicks() - first_frame_ms);
+    uint32_t elapsed = SDL_GetTicks() - first_frame_ms;
+    printf("[UI] rotation completed after %u ms from first draw (target %u ms)\n",
+           elapsed, FALAFEL_ROTATION_DURATION_MS);
+    /* Keep normal playback near its target, including render/event-loop cost.
+     * Sanitizer-instrumented PNG decoding is checked for liveness, not speed. */
+    if (FALAFEL_GUI_HEARTBEAT_LIMIT_MS == 200 && elapsed > 450) invalid_duration=true;
+    if (timed_start_ms) {
+        uint32_t total = SDL_GetTicks() - timed_start_ms;
+        printf("[UI] full 24-step rotation: %u ms from request\n", total);
+        if (FALAFEL_GUI_HEARTBEAT_LIMIT_MS == 200 &&
+            (total < FALAFEL_ROTATION_DURATION_MS || total > FALAFEL_ROTATION_DURATION_MS + 80))
+            invalid_duration=true;
+        timed_start_ms=0;
+    }
     if (original_callbacks.on_personality_changed)
         original_callbacks.on_personality_changed(selected, data);
 }
@@ -95,8 +132,11 @@ static void personality_changed(falafel_personality_t selected, void *data)
 int ui_smoke_step(lv_display_t *d, SDL_Window *w)
 {
     static unsigned phase; static Uint32 start, wait_started;
-    static const Uint32 times[]={0,200,300,400,600,1400,1550,1650,1850,2400,
-                                 2500,2700,2900,3800,4600,5500};
+    static const Uint32 times[]={0,200,300,400,450,1400,1430,1460,1490,2400,
+                                 2500,2700,2750,3800,4600,5500,
+                                 5600,5700,5800,5850,6800,6900,7000,7100,
+                                 7200,7300,8300,8500,8560,8680,8750,9800,
+                                 10800,11000,11200,12200,12400,13400};
     const uint32_t all_frames = (1u << FALAFEL_ROTATION_FRAME_COUNT) - 1;
     if(!start) start=SDL_GetTicks();
     if(phase>=sizeof(times)/sizeof(times[0])) return 1;
@@ -105,8 +145,10 @@ int ui_smoke_step(lv_display_t *d, SDL_Window *w)
     if(width!=466 || height!=466) goto failure;
     /* Instrumented decoders are slower. Wait for completion without assuming
      * desktop release timing, while retaining a bounded failure deadline. */
-    if (phase==5 || phase==9 || phase==13) {
+    if (phase==5 || phase==9 || phase==13 || phase==20 || phase==26 ||
+        phase==30 || phase==32 || phase==35 || phase==37) {
         if (falafel_gui.personality_animating) {
+            if (phase==30) wheel(w,0.2f); /* A busy gesture's tail spans completion. */
             if (!wait_started) wait_started=SDL_GetTicks();
             if (SDL_GetTicks()-wait_started>4000) goto failure;
             return 0;
@@ -139,8 +181,9 @@ int ui_smoke_step(lv_display_t *d, SDL_Window *w)
         break;
     case 5:
         if(falafel_gui.personality_animating || changes!=1 || invalid_frame_order || drawn_frames!=all_frames ||
-           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK) goto failure;
-        drawn_frames=0;
+           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK || falafel_gui.rotation_frame!=0 ||
+           lv_image_get_src(character())!=&falafel_asset_rotation[0]) goto failure;
+        drawn_frames=0; last_drawn_frame=-1;
         wheel(w,-2.0f); break;
     case 6: pointer(w,SDL_MOUSEBUTTONDOWN,233,114); break;
     case 7: pointer(w,SDL_MOUSEBUTTONUP,233,114); break;
@@ -158,7 +201,7 @@ int ui_smoke_step(lv_display_t *d, SDL_Window *w)
     case 10: pointer(w,SDL_MOUSEBUTTONUP,233,354); break;
     case 11:
         if(!falafel_gui_is_home_active()) goto failure;
-        drawn_frames=0;
+        drawn_frames=0; last_drawn_frame=-1; rotation_direction=1;
         wheel(w,2.0f); break;
     case 12:
         if(!falafel_gui.personality_animating ||
@@ -181,21 +224,117 @@ int ui_smoke_step(lv_display_t *d, SDL_Window *w)
     case 15: {
         if(falafel_gui.personality_animating || changes!=3 ||
            falafel_gui.personality!=FALAFEL_PERSONALITY_TAXI ||
-           lv_image_get_src(character())!=&falafel_asset_character ||
-           heartbeat_count<100 || heartbeat_gap>200) goto failure;
+           lv_image_get_src(character())!=&falafel_asset_rotation[falafel_gui.rotation_frame]) goto failure;
         falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_TAXI);
         if(falafel_gui_previous_personality()) goto failure;
         falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_REMINDER);
         if(falafel_gui_next_personality()) goto failure;
         falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_COOK);
+        break;
+    }
+    case 16:
+        falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_TAXI);
+        initial_pose=falafel_gui.rotation_frame;
+        observe_rotation(-1);
+        pointer(w,SDL_MOUSEBUTTONDOWN,330,240); break;
+    case 17: pointer(w,SDL_MOUSEMOTION,130,240); break;
+    case 18: pointer(w,SDL_MOUSEBUTTONUP,130,240); break;
+    case 19:
+        if(!falafel_gui.personality_animating || changes!=3) goto failure;
+        /* Starts while busy, releases after completion: must never queue. */
+        pointer(w,SDL_MOUSEBUTTONDOWN,330,240);
+        for(unsigned i=0;i<8;++i)
+            if(falafel_gui_next_personality() || falafel_gui_previous_personality()) goto failure;
+        break;
+    case 20:
+        if(changes!=4 || invalid_frame_order || drawn_frames!=all_frames ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK ||
+           falafel_gui.rotation_frame!=initial_pose) goto failure;
+        break;
+    case 21: pointer(w,SDL_MOUSEMOTION,130,240); break;
+    case 22: pointer(w,SDL_MOUSEBUTTONUP,130,240); break;
+    case 23:
+        if(falafel_gui.personality_animating || changes!=4 ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK) goto failure;
+        observe_rotation(1);
+        pointer(w,SDL_MOUSEBUTTONDOWN,130,240); break;
+    case 24: pointer(w,SDL_MOUSEMOTION,330,240); break;
+    case 25: pointer(w,SDL_MOUSEBUTTONUP,330,240); break;
+    case 26:
+        if(changes!=5 || invalid_frame_order || drawn_frames!=all_frames ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_TAXI ||
+           falafel_gui.rotation_frame!=initial_pose ||
+           lv_image_get_src(character())!=&falafel_asset_rotation[initial_pose]) goto failure;
+        if(capture(d,"home_left_right")) goto failure;
+        break;
+    case 27:
+        observe_rotation(-1);
+        timed_start_ms=SDL_GetTicks();
+        if(!falafel_gui_next_personality()) goto failure;
+        break;
+    case 28:
+        if(!falafel_gui.personality_animating || changes!=5) goto failure;
+        wheel(w,0.2f); break; /* A new subthreshold burst begins during playback. */
+    case 29: wheel(w,0.2f); break;
+    case 30:
+        if(changes!=6 || invalid_frame_order || drawn_frames!=all_frames ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK) goto failure;
+        wheel(w,2.0f); /* Even a threshold-crossing inertial tail is not a new swipe. */
+        break;
+    case 31:
+        if(falafel_gui.personality_animating || changes!=6 ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_COOK) goto failure;
+        observe_rotation(1);
+        flipped_wheel(w,-2.0f); /* Physical right with natural scrolling. */
+        break;
+    case 32:
+        if(changes!=7 || invalid_frame_order || drawn_frames!=all_frames ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_TAXI ||
+           falafel_gui.rotation_frame!=initial_pose) goto failure;
+        break;
+    case 33:
+        falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_COOK);
+        observe_rotation(-1);
+        if(!falafel_gui_next_personality()) goto failure;
+        break;
+    case 34:
+        if(!falafel_gui.personality_animating || falafel_gui.rotation_frame==initial_pose) goto failure;
+        interrupted_pose=falafel_gui.rotation_frame;
+        falafel_gui_set_personality_remote(FALAFEL_PERSONALITY_COOK);
+        if(falafel_gui.personality_animating || changes!=7 ||
+           falafel_gui.rotation_frame!=interrupted_pose ||
+           lv_image_get_src(character())!=&falafel_asset_rotation[interrupted_pose]) goto failure;
+        observe_rotation(1);
+        timed_start_ms=SDL_GetTicks();
+        if(!falafel_gui_previous_personality() || falafel_gui.rotation_frame!=interrupted_pose ||
+           lv_image_get_src(character())!=&falafel_asset_rotation[interrupted_pose]) goto failure;
+        if(capture(d,"rotation_reverse")) goto failure;
+        break;
+    case 35:
+        if(changes!=8 || invalid_frame_order || drawn_frames!=all_frames ||
+           falafel_gui.personality!=FALAFEL_PERSONALITY_TAXI ||
+           falafel_gui.rotation_frame!=interrupted_pose) goto failure;
+        break;
+    case 36:
+        observe_rotation(-1);
+        timed_start_ms=SDL_GetTicks();
+        if(!falafel_gui_next_personality() || falafel_gui.rotation_frame!=interrupted_pose) goto failure;
+        break;
+    case 37: {
+        if(changes!=9 || invalid_frame_order || invalid_duration || drawn_frames!=all_frames ||
+           falafel_gui.personality_animating || falafel_gui.personality!=FALAFEL_PERSONALITY_COOK ||
+           falafel_gui.rotation_frame!=interrupted_pose ||
+           lv_image_get_src(character())!=&falafel_asset_rotation[interrupted_pose] ||
+           heartbeat_count<100 || heartbeat_gap>FALAFEL_GUI_HEARTBEAT_LIMIT_MS) goto failure;
         lv_mem_monitor_t memory;
         lv_mem_monitor(&memory);
-        printf("[UI] heartbeat max gap %u ms; LVGL heap peak %zu bytes\n",
-               heartbeat_gap, memory.max_used);
+        printf("[UI] heartbeat max gap %u ms (limit %u); LVGL heap peak %zu bytes\n",
+               heartbeat_gap, FALAFEL_GUI_HEARTBEAT_LIMIT_MS, memory.max_used);
         lv_timer_delete(heartbeat_timer);
         falafel_gui_set_callbacks(&original_callbacks);
-        puts("[UI] PASS: 24 rendered frames both directions, deferred selection, swipe lock, "
-             "messages during rotation, banner timeout, remote cancellation, static restore");
+        puts("[UI] PASS: opposite cyclic frame order, left/right pose continuity, "
+             "rapid swipe/held drag/inertial tail lock, single callback, flipped wheel, "
+             "messages during rotation, remote cancellation without pose reset");
         return 1;
     }
     }

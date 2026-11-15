@@ -180,8 +180,11 @@ The first circular Falafel UI now runs in a 466 × 466 SDL window: the supplied
 PNG is scaled to a 320px stage on dark sage with cream text and toasted-orange
 accents; swipes select Taxi/Cuoco/Promemoria, and the smaller envelope
 opens the real mailbox view, with preset sending and a return button. The same PNG serves all three
-personalities; swipes now play a 24-frame prerendered rotation before committing
-the new selection, with decoded-image caching disabled. Build/run commands,
+personalities; left/right swipes traverse the existing 24-frame rotation in
+opposite directions with a 280 ms full-turn target before committing one selection.
+The displayed pose is
+retained across turns/cancellation, and busy gestures are discarded without
+queuing. Decoded-image caching remains disabled. Build/run commands,
 memory estimates and the GUI smoke test are in
 [the simulator guide](simulator/README.md). Messaging uses the E2EE worker;
 no PNG, protocol, relay implementation or cryptographic changes were required.

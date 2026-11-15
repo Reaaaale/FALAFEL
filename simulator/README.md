@@ -165,13 +165,29 @@ surfaces use muted sage `#40564A`. Backgrounds are flat, without gradients.
 Drag at least 50 pixels horizontally with the left mouse button, or scroll
 horizontally with two fingers on a macOS trackpad, to change personality. Vertical
 gestures are ignored. Order is Taxi → Cuoco → Promemoria, bounded at the ends.
-Each accepted swipe plays `falafel_rotation/frame_000.png` through
-`frame_023.png` in order, for either swipe direction. A non-blocking LVGL timer
-advances one frame every 30 ms (nominal 720 ms). New swipes are discarded while
-playing; labels, dots and the personality callback update only after the last
-frame, then the original static PNG returns. Remote synchronized state cancels
-a pending local rotation without firing its callback. Trackpad input is observed
-with `SDL_AddEventWatch`; LVGL still owns the SDL event loop.
+Each accepted swipe reuses the existing 24-frame rotation as a circular sequence:
+left selects the next personality with a frame step of -1; right selects the
+previous personality with a frame step of +1, modulo 24. The existing
+non-blocking LVGL timer targets a **280 ms full turn**, returning to the exact
+starting pose after all 24 steps. Absolute deadlines distribute intervals of
+11/12 ms without rounding drift; delayed callbacks never skip frame indices.
+When home is visible, the next step waits for the current frame's draw event.
+If rendering cannot keep up, playback extends rather than dropping frames. The current frame is retained between animations;
+there is no forced switch to the static PNG on completion/cancellation and no
+reset to frame zero when starting another turn. Initial creation still uses
+the unchanged static PNG, visually identical to rotation frame zero.
+
+Labels, dots and the personality callback commit exactly once at completion.
+New swipes are discarded while playing, with no queue or overlapping timer.
+A mouse drag begun while busy remains blocked even if released after playback.
+Trackpad events from a busy gesture, including subthreshold deltas and its
+inertial tail, stay latched until 220 ms without wheel events; a fresh gesture
+can then be accepted. SDL natural-scrolling inversion is normalized before
+choosing the direction. Remote synchronized state cancels a pending choice
+without a local callback, retaining its displayed pose for the next animation.
+Playback still completes while messages are open. Trackpad input is observed
+with `SDL_AddEventWatch`; LVGL still owns the SDL event loop. The watch reads
+an atomic busy/visibility snapshot published by the GUI thread, not LVGL objects.
 
 Click the envelope to open the real mailbox view, or “Torna a Falafel” to
 return. No demonstration message is inserted. The envelope uses toasted orange
@@ -199,10 +215,15 @@ The desktop LVGL heap remains **8 MiB**. The smoke test measured a peak of
 **about 3.75 MiB**, including snapshots, GUI objects, decode scratch
 and circular layers; this excludes the separately allocated messaging worker, provider, SDL/OS
 memory and mapped compressed assets.
-The refresh period is 15 ms so there are two nominal refresh opportunities per
-frame. The timer does not sleep, loop over frames or decode images itself;
-LodePNG decoding happens synchronously during each draw. Slow decoding can
-therefore extend playback rather than skip frames.
+The refresh period is 5 ms, shorter than the 11/12 ms rotation steps. The timer
+does not sleep, loop over frames or decode images itself; LodePNG decoding
+happens synchronously during each draw. LVGL is compiled with `-O2` on Clang/GCC,
+including debug builds, so its PNG decode, scaling/blending and memory routines
+can sustain the 280 ms target. Debug symbols, assertions and sanitizer flags
+are retained; application/transport compilation flags are unchanged. Assets,
+decoder source, decoded-image cache policy and the 8 MiB budget are unchanged.
+Slow machines or sanitizer instrumentation can extend playback; all visible
+frames are still drawn in order.
 
 This is a bounded-memory playback strategy, not a verified ESP32-S3 port. A
 hardware build must provide enough flash for the compressed assets, configure
@@ -232,16 +253,65 @@ mkdir -p /tmp/falafel-ui
 FALAFEL_SCREENSHOTS=/tmp/falafel-ui ctest --test-dir build/simulator --output-on-failure
 ```
 
-`circular_gui_smoke` launches the actual SDL window using `--device 41 --peer 42`
-and `--ui-smoke-test`. It injects mouse drags and horizontal wheel events. Draw
-events check all 24 frame descriptors in sequence in both navigation directions.
-It checks deferred personality callbacks, overlapping-swipe rejection, message
-opening while rotating, completion while the home is hidden, static restoration,
-banner timeout, remote cancellation and endpoint limits. A 10 ms heartbeat must
-keep running (maximum observed gap must stay below 200 ms). Snapshots check the
-circular mask and character; optional BMPs include home, rotation, messages and
-banner. They snapshot LVGL because SDL backbuffers are undefined after present.
-Keep physical input away from the test window during automation.
+`circular_gui_smoke` runs the actual simulator/LVGL renderer with SDL's dummy
+video driver under CTest, avoiding interference from physical desktop input.
+It injects mouse drags and normal/flipped horizontal wheel events. Actual draw
+events check all 24 frame descriptors in opposite cyclic orders. It checks
+left/right return to the starting pose, nine committed transitions, rapid busy
+swipes, a drag held across completion, a subthreshold busy burst and its tail
+across completion, limits, remote cancellation/resumption from a nonzero pose,
+single callbacks and message/banner availability. Test timeout is 40 seconds.
+The 10 ms heartbeat must keep running throughout: maximum gap <=200 ms normally;
+CMake builds using `-fsanitize` use 600 ms because instrumented synchronous PNG
+decoding is not a release-performance measurement. Runtime animation timing and
+assets are identical between these builds. PNG decode still extends playback
+rather than skipping frames. Optional BMP snapshots cover home, rotation,
+messages/banner, left/right return and reverse rotation after cancellation.
+They snapshot LVGL because SDL backbuffers are undefined after present.
+
+Latest timing verification (2026-11-13): normal and ASan/UBSan builds and full
+simulator suites **4/4 each PASS**. The expanded smoke checks all 24 rendered
+frames, both directions, pose retention, busy/held swipes, inertial tails and
+single selection callbacks with shorter busy-check timings. Normal full-turn
+measurements from the direct request were 280–281 ms; the final snapshot run
+measured 280 ms in all three timed cases. The normal test allows 80 ms of
+scheduling/render tolerance for these measurements and rejects the old 720 ms
+behavior. Sanitizer builds check frame completeness/liveness, not release-speed
+performance (roughly 0.55–0.60 seconds per visible turn in the latest full suite).
+Final normal/sanitized heartbeat maxima were 24/89 ms; LVGL heap remains about
+3.75 MiB. New initial/round-trip BMP pixels are equal and match the prior GUI's
+initial snapshot despite renderer optimization. No real identities or stores
+were accessed. The 280 ms target is not a hard real-time guarantee on every
+machine/display; physical trackpad and S3 performance still need manual review.
+
+Earlier direction-only verification on 2026-11-13: the requested final mapping (left -1/right +1)
+passes circular_gui_smoke in normal and ASan/UBSan builds, including unchanged
+personality order, pose retention and busy input handling. Earlier verification:
+normal simulator suite 4/4 PASS. All four sanitizer
+checks pass after correcting the smoke timing budget (the GUI case was rerun
+separately; its initial 200 ms budget failed at ~235 ms, with no ASan/UBSan
+report). Normal GUI smoke passes three consecutive runs: heartbeat maxima
+89/70/74 ms, peak LVGL heap about 3.75 MiB. Sanitized GUI smoke PASS: 260 ms,
+29.27 seconds total. Initial/home-left-right BMP pixel data are exactly equal;
+normal and reverse screenshots were inspected. Host C6/simulator E2EE and
+relay mTLS regressions 2/2 PASS, using temporary stores/credentials only.
+The new direction-order assertion failed on the original implementation.
+Native macOS window startup was also exercised; physical trackpad calibration/
+momentum remains a manual check, not claimed by injected SDL tests.
+
+For a visible, automatic GUI-only demonstration (no identity, mailbox or relay):
+
+```sh
+cmake --build build/simulator -j4
+env -u SDL_VIDEODRIVER build/simulator/falafel_simulator \
+  --device 41 --peer 42 --ui-smoke-test
+```
+
+The window closes automatically after the scenarios. Do not add physical input
+while that automation is running. To try swipes manually, relaunch your existing
+normal simulator command with the same identity/mailbox/history and TLS options
+from the sections above; only the rebuilt executable changes. No new E2EE
+fixture, history initialization or credential provisioning is needed.
 
 On 2026-10-31 normal and ASan/UBSan builds and simulator suites passed **4/4**:
 rotation smoke; encrypted_history; five controller cases; three real SDL cases.

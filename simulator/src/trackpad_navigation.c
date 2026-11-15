@@ -1,6 +1,7 @@
 #include "trackpad_navigation.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 
 #include "SDL2/SDL.h"
@@ -19,11 +20,15 @@ typedef struct {
     float horizontal;
     float vertical_abs;
     bool latched;
+    bool gesture_active;
+    bool blocked_at_start;
     bool debug_logging;
     bool installed;
 } trackpad_state_t;
 
 static trackpad_state_t state;
+/* SDL watches may run on an input thread: never inspect LVGL objects there. */
+static atomic_bool input_blocked;
 
 static int SDLCALL watch_sdl_event(void *userdata, SDL_Event *event)
 {
@@ -41,6 +46,14 @@ static int SDLCALL watch_sdl_event(void *userdata, SDL_Event *event)
         y = -y;
     }
 
+    if (!trackpad->gesture_active ||
+        event->wheel.timestamp - trackpad->last_event_ms >= TRACKPAD_QUIET_MS) {
+        trackpad->horizontal = 0.0f;
+        trackpad->vertical_abs = 0.0f;
+        trackpad->latched = false;
+        trackpad->gesture_active = true;
+        trackpad->blocked_at_start = atomic_load_explicit(&input_blocked, memory_order_acquire);
+    }
     trackpad->last_event_ms = event->wheel.timestamp;
     trackpad->horizontal += x;
     trackpad->vertical_abs += fabsf(y);
@@ -57,40 +70,40 @@ static int SDLCALL watch_sdl_event(void *userdata, SDL_Event *event)
 
 void trackpad_navigation_init(uint32_t window_id, bool debug_logging)
 {
-    state.window_id = window_id;
-    state.debug_logging = debug_logging;
+    state = (trackpad_state_t){.window_id = window_id, .debug_logging = debug_logging};
+    atomic_init(&input_blocked, true);
     SDL_AddEventWatch(watch_sdl_event, &state);
     state.installed = true;
 }
 
 void trackpad_navigation_process(void)
 {
+    bool blocked = !falafel_gui_is_home_active() || falafel_gui_is_personality_animating();
+    atomic_store_explicit(&input_blocked, blocked, memory_order_release);
     uint32_t now = SDL_GetTicks();
     uint32_t quiet_for = now - state.last_event_ms;
 
-    if (!falafel_gui_is_home_active()) {
+    if (!state.gesture_active) return;
+    if (quiet_for >= TRACKPAD_QUIET_MS) {
         state.horizontal = 0.0f;
         state.vertical_abs = 0.0f;
         state.latched = false;
+        state.gesture_active = false;
         return;
     }
-
-    if (state.latched) {
-        if (quiet_for >= TRACKPAD_QUIET_MS) {
-            state.horizontal = 0.0f;
-            state.vertical_abs = 0.0f;
-            state.latched = false;
-        }
+    if (blocked || state.blocked_at_start) {
+        /* Do not queue a partial/busy gesture for when playback completes.
+         * Keep its latch through the inertial tail until a quiet interval. */
+        state.horizontal = 0.0f;
+        state.vertical_abs = 0.0f;
+        state.latched = true;
         return;
     }
+    if (state.latched) return;
 
     float horizontal_abs = fabsf(state.horizontal);
     if (horizontal_abs < TRACKPAD_SWIPE_THRESHOLD ||
         horizontal_abs < state.vertical_abs * TRACKPAD_AXIS_BIAS) {
-        if (state.last_event_ms != 0 && quiet_for >= TRACKPAD_QUIET_MS) {
-            state.horizontal = 0.0f;
-            state.vertical_abs = 0.0f;
-        }
         return;
     }
 
@@ -98,6 +111,7 @@ void trackpad_navigation_process(void)
         ? falafel_gui_next_personality()
         : falafel_gui_previous_personality();
     state.latched = true;
+    if (changed) atomic_store_explicit(&input_blocked, true, memory_order_release);
     fprintf(stderr, "[INPUT] Trackpad swipe %s%s\n",
             state.horizontal < 0.0f ? "left" : "right",
             changed ? " recognized" : " (personality limit)");

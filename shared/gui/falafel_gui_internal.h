@@ -21,6 +21,7 @@
 #define FALAFEL_COLOR_WHITE      FALAFEL_COLOR_CREAM
 
 #define FALAFEL_ROTATION_FRAME_COUNT 24
+#define FALAFEL_ROTATION_DURATION_MS 280
 extern const lv_image_dsc_t falafel_asset_rotation[FALAFEL_ROTATION_FRAME_COUNT];
 extern const lv_image_dsc_t falafel_asset_character;
 extern const lv_image_dsc_t falafel_asset_taxi;

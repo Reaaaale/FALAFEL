@@ -10,8 +10,8 @@
 #define LV_USE_LODEPNG 1
 /* Decode only the currently drawn PNG; never retain the 24 decoded frames. */
 #define LV_CACHE_DEF_SIZE 0
-/* Two refresh opportunities per 30ms rotation frame. */
-#define LV_DEF_REFR_PERIOD 15
+/* Refresh faster than each 11/12ms step of the 280ms, 24-frame rotation. */
+#define LV_DEF_REFR_PERIOD 5
 
 #define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_MONTSERRAT_22 1

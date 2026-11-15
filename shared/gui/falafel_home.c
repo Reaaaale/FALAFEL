@@ -4,12 +4,16 @@ static const char *names[FALAFEL_PERSONALITY_COUNT] = {"Taxi", "Cuoco", "Promemo
 static lv_obj_t *title_label, *art_stage, *character_image, *message_button;
 static lv_timer_t *rotation_timer;
 static falafel_personality_t pending_personality;
+static int8_t rotation_direction;
+static uint8_t rotation_steps_remaining;
+static uint32_t rotation_started_at;
+static bool rotation_frame_drawn;
 static lv_obj_t *markers[FALAFEL_PERSONALITY_COUNT];
 
 enum {
     HOME_SWIPE_MIN_DISTANCE = 50,
     HOME_SWIPE_AXIS_BIAS_PERCENT = 125,
-    HOME_FRAME_MS = 30,
+    HOME_FRAME_MS = FALAFEL_ROTATION_DURATION_MS / FALAFEL_ROTATION_FRAME_COUNT,
 };
 
 typedef struct {
@@ -34,15 +38,38 @@ static void stop_rotation(void)
 {
     lv_timer_pause(rotation_timer);
     falafel_gui.personality_animating = false;
-    lv_image_set_src(character_image, &falafel_asset_character);
+    rotation_steps_remaining = 0;
+}
+
+static void schedule_rotation_step(lv_timer_t *timer)
+{
+    /* Absolute deadlines distribute 280 ms over 24 steps (11/12 ms), without
+     * accumulating rounding or event-loop delay. Never catch up by skipping. */
+    uint32_t step = FALAFEL_ROTATION_FRAME_COUNT - rotation_steps_remaining + 1;
+    uint32_t due = step * FALAFEL_ROTATION_DURATION_MS / FALAFEL_ROTATION_FRAME_COUNT;
+    uint32_t elapsed = lv_tick_elaps(rotation_started_at);
+    lv_timer_set_period(timer, due > elapsed ? due - elapsed : 1);
+    lv_timer_reset(timer);
+}
+
+static void rotation_drawn(lv_event_t *event)
+{
+    (void)event;
+    rotation_frame_drawn = true;
 }
 
 static void rotation_step(lv_timer_t *timer)
 {
-    (void)timer;
-    if (++falafel_gui.rotation_frame < FALAFEL_ROTATION_FRAME_COUNT) {
-        lv_image_set_src(character_image,
-                         &falafel_asset_rotation[falafel_gui.rotation_frame]);
+    if (falafel_gui_is_home_active() && !rotation_frame_drawn) {
+        lv_timer_set_period(timer, 1);
+        return;
+    }
+    falafel_gui.rotation_frame = (uint8_t)((falafel_gui.rotation_frame +
+        rotation_direction + FALAFEL_ROTATION_FRAME_COUNT) % FALAFEL_ROTATION_FRAME_COUNT);
+    lv_image_set_src(character_image, &falafel_asset_rotation[falafel_gui.rotation_frame]);
+    rotation_frame_drawn = false;
+    if (--rotation_steps_remaining) {
+        schedule_rotation_step(timer);
         return;
     }
     stop_rotation();
@@ -52,15 +79,20 @@ static void rotation_step(lv_timer_t *timer)
         falafel_gui.callbacks.on_personality_changed(pending_personality, falafel_gui.callbacks.user_data);
 }
 
-static bool select_personality(falafel_personality_t selected)
+static bool select_personality(falafel_personality_t selected, int8_t direction)
 {
     if (falafel_gui.personality_animating || selected >= FALAFEL_PERSONALITY_COUNT ||
         selected == falafel_gui.personality) return false;
     pending_personality = selected;
-    falafel_gui.rotation_frame = 0;
+    rotation_direction = direction;
+    rotation_steps_remaining = FALAFEL_ROTATION_FRAME_COUNT;
     falafel_gui.personality_animating = true;
-    lv_image_set_src(character_image, &falafel_asset_rotation[0]);
-    lv_timer_reset(rotation_timer);
+    /* Continue from the displayed pose, including after remote cancellation.
+     * A full cycle returns to this exact frame; never swap back to a still. */
+    lv_image_set_src(character_image, &falafel_asset_rotation[falafel_gui.rotation_frame]);
+    rotation_frame_drawn = false;
+    rotation_started_at = lv_tick_get();
+    schedule_rotation_step(rotation_timer);
     lv_timer_resume(rotation_timer);
     return true;
 }
@@ -85,16 +117,21 @@ static void home_deleted(lv_event_t *event)
     falafel_gui.personality_animating = false;
 }
 
+bool falafel_gui_is_personality_animating(void)
+{
+    return falafel_gui.personality_animating;
+}
+
 bool falafel_gui_next_personality(void)
 {
     if (falafel_gui.personality >= FALAFEL_PERSONALITY_REMINDER) return false;
-    return select_personality((falafel_personality_t)(falafel_gui.personality + 1));
+    return select_personality((falafel_personality_t)(falafel_gui.personality + 1), -1);
 }
 
 bool falafel_gui_previous_personality(void)
 {
     if (falafel_gui.personality <= FALAFEL_PERSONALITY_TAXI) return false;
-    return select_personality((falafel_personality_t)(falafel_gui.personality - 1));
+    return select_personality((falafel_personality_t)(falafel_gui.personality - 1), 1);
 }
 
 static void home_pointer_event(lv_event_t *event)
@@ -157,12 +194,14 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
     lv_obj_clear_flag(art_stage, LV_OBJ_FLAG_SCROLLABLE);
     character_image = lv_image_create(art_stage);
     lv_obj_t *image = character_image;
+    falafel_gui.rotation_frame = 0;
     lv_image_set_src(image, &falafel_asset_character);
     /* LVGL scale unit is 256. Uniform fit in a 320px square, no cropping. */
     uint32_t edge = falafel_asset_character.header.w > falafel_asset_character.header.h
         ? falafel_asset_character.header.w : falafel_asset_character.header.h;
     lv_image_set_scale(image, (uint32_t)(320u * 256u / edge));
     lv_obj_center(image);
+    lv_obj_add_event_cb(image, rotation_drawn, LV_EVENT_DRAW_POST, NULL);
 
     lv_obj_t *notification = lv_button_create(root);
     message_button = notification;

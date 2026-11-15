@@ -1,8 +1,37 @@
 # Falafel project status
 
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
 ## Current status
+
+2026-11-13 — Full GUI rotation now targets 280 ms with all 24 existing frames.
+Absolute 11/12 ms deadlines, 5 ms refresh and an optimized LVGL build avoid the
+previous unoptimized PNG/render bottleneck. A visible frame must be drawn before
+the next index advances; slow rendering extends playback without skipping.
+Normal and ASan/UBSan builds/full simulator suites pass 4/4 each. Timed normal
+turns measured 280–281 ms from request; the final three snapshot-test samples
+were exactly 280 ms. Sanitized drawing remains slower (~0.55–0.60 s), with no
+sanitizer reports. Initial and round-trip pixels match each other and the prior
+GUI. Left -1/right +1, personality navigation, current pose, cancellation and
+busy-swipe policy remain unchanged. No new assets/dependencies/cache, no firmware,
+relay, E2EE/TLS or persistent-data changes. See the simulator guide for timing
+limits and manual visual checks.
+
+2026-11-13 — Bidirectional GUI rotation corrected and software verified. Left
+swipes decrement the frame index (-1 modulo 24); right swipes increment it (+1).
+Personality navigation stays next/previous respectively. The current pose
+survives completion/cancellation and starts the next animation without a reset.
+The existing LVGL timer makes one full turn, then commits one personality change.
+Busy mouse/trackpad gestures are dropped without queuing, including held drags
+and inertial tails until the existing 220 ms quiet interval. No assets, firmware,
+relay, E2EE, TLS or persistent data were changed. Normal simulator suite 4/4 and
+all four sanitizer checks pass (GUI rerun with sanitizer-specific timing budget);
+normal GUI smoke passes three successive runs. Actual rendered frame order,
+nonzero-pose resume and callback counts are checked; left/right-return snapshots
+match initial pixels exactly. Host C6/simulator E2EE and mTLS regressions 2/2 PASS.
+Native macOS window startup/rendering was exercised. Physical trackpad settings/
+momentum and S3 performance remain unverified. See [behavior and visual launch
+commands](../simulator/README.md#character-and-interaction).
 
 2026-11-12 — Optional mTLS is implemented for the Python relay, ESP32-C6
 and macOS simulator. The existing TCP/E2EE bidirectional/reset milestone is
@@ -135,6 +164,9 @@ cryptography, relay implementation, protocol or mailbox format.
 
 ## Implemented features
 
+- Opposite left/right cyclic GUI rotation with retained frame orientation,
+  single deferred selection/callback and busy gesture/inertia rejection.
+
 - Optional mTLS for relay/C6/simulator, explicit certificate fingerprint-to-ID
   authorization, bounded nonblocking handshakes and separate external TLS PKI.
   Existing plaintext TCP transport remains an explicitly selected lab mode.
@@ -177,6 +209,20 @@ cryptography, relay implementation, protocol or mailbox format.
   backend, explicit unpair, and optional local identity rotation.
 
 ## Verified functionality
+
+- 2026-11-13, 280 ms timing: full simulator suites 4/4 normal and 4/4 ASan/UBSan
+  PASS; all 24 draws and prior navigation/input/pose assertions retained. Direct
+  normal timings 280–281 ms; final visual regression 280/280/280 ms. Sanitized
+  timing is not a performance claim. Pixel equality and `git diff --check` pass.
+
+- 2026-11-13, final direction inversion: normal and ASan/UBSan builds pass;
+  circular_gui_smoke passes 1/1 each (14.85 s / 28.38 s). Frame order is left -1,
+  right +1 modulo 24; personality destinations, current pose and input lock
+  assertions remain unchanged. No other runtime logic was modified.
+
+- 2026-11-13: expanded SDL/LVGL GUI smoke passes normal and ASan/UBSan, including
+  both directions, left/right return, repeated/busy swipes and partial-pose resume.
+  Normal scene snapshots before/after the round trip have identical pixels.
 
 - 2026-11-12: mTLS software checks pass (20/20 host normal and sanitized,
   4/4 simulator normal and sanitized, C6 TLS/TCP cross-builds); actual hardware
@@ -312,8 +358,8 @@ receive effects before consume; replay archive persists before active-slot reuse
   filesystem or hardware failure.
 - GUI smoke and two-window E2EE automation cover rotation, messages and shutdown;
   broader interaction/accessibility and physical trackpad tests remain pending. The
-  circular UI uses one static PNG for all personalities, a shared 24-frame
-  rotation and an always-visible demo icon. PNG decode is synchronous per draw;
+  circular UI uses one character for all personalities, a bidirectional 24-frame
+  cycle with retained pose and an always-visible demo icon. PNG decode is synchronous per draw;
   slow platforms extend playback. ESP32-S3 flash/PSRAM and timing need validation.
 - ESP-IDF storage adapter is implemented and C6 cross-built; physical NVS
   power-cut/GC/wear and S3 validation remain pending. The user reports successful
@@ -397,6 +443,13 @@ stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
 
+2026-11-13 — 280 ms full-cycle target with all 24 frames, optimized bounded-memory
+rendering, unchanged navigation/input/pose behavior and full software verification.
+Physical trackpad/display timing remains a manual check.
+
+2026-11-13 — Bidirectional cyclic GUI rotation and busy-gesture continuity
+corrected, built and software-verified, with final left -1/right +1 mapping; physical trackpad review remains pending.
+
 2026-11-12 — mTLS implementation and software verification complete for
 relay/C6/simulator, retaining the user-confirmed TCP/E2EE/reset milestone.
 Physical mTLS and deployment remain pending; see `mtls.md`.
@@ -459,15 +512,24 @@ message views. A build-generated image descriptor embeds
 `simulator/assets/falafel.png`; LodePNG decodes it and the home scales uniformly
 into a 320px stage. Cream (`#F3E9D8`) text and toasted-orange (`#D88A35`)
 accents are applied with flat fills; the static PNG is unchanged. An accepted
-pointer/trackpad swipe starts a 30 ms LVGL timer over 24 compressed read-only PNG
-descriptors. New swipes are ignored until completion; selection, indicators and
-callbacks commit only after frame 23, then the static image returns. A remote
-selection cancels pending playback without a local callback. Playback continues
+pointer/trackpad swipe starts a 280 ms full-turn schedule over 24 compressed
+read-only PNG descriptors, using absolute 11/12 ms LVGL timer deadlines. Left/next uses -1 and right/previous +1 modulo 24, starting from the
+retained frame. A complete turn returns to that exact pose; completion and remote
+cancellation no longer replace it with a still. Selection, indicators and one
+callback commit only after the full turn. Busy gestures are discarded without
+queuing, including pointer presses spanning completion and wheel tails through
+the 220 ms quiet interval. The SDL watch uses a GUI-thread-published atomic busy
+snapshot rather than inspecting LVGL objects. A remote selection cancels the
+pending local choice without a callback and preserves the partial pose. Playback continues
 when messages are open; their demo envelope and back button remain available.
 The decoded-image cache is explicitly disabled, so drawing allocates only the
 current decoded PNG rather than a 24-image set. PNG decoding is synchronous
 per draw; no playback loop or sleep blocks the UI for the animation duration.
-A 15 ms refresh period supports nominal 720 ms playback. Rotation data occupies
+A 5 ms refresh period and `-O2` LVGL compilation support the 280 ms target even
+in normal debug builds. Symbols/assertions and sanitizer instrumentation remain;
+application/transport flags are unchanged. A draw-event guard prevents visible
+frames from being skipped if rendering falls behind; playback then extends.
+Rotation data occupies
 2.72 MiB of read-only storage; one decoded frame is 848 KiB, plus decoder scratch
 and clipping/display buffers. ESP32-S3 performance and allocation are unverified.
 The rectangular status bar and composer have no entry point in this initial

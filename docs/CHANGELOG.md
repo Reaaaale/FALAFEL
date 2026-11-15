@@ -1,5 +1,77 @@
 # Falafel development changelog
 
+## 2026-11-13 — 280 ms rotation with all 24 frames
+
+- Added the 280 ms duration constant in `falafel_gui_internal.h`; updated
+  `falafel_home.c` to schedule 24 absolute deadlines at 11/12 ms intervals.
+  Wait for each visible frame's draw before advancing; never catch up by
+  skipping. Navigation, left -1/right +1, current pose, cancellation and the
+  existing busy-gesture policy are unchanged.
+- Set simulator refresh to 5 ms and compile LVGL with `-O2` on Clang/GCC, retaining
+  symbols/assertions/sanitizers. Timer reduction alone still took ~800 ms with
+  the unoptimized renderer; optimization is needed for the actual target.
+  No asset regeneration, dependency, decoded-frame cache or extra image buffers.
+  Application/transport flags and firmware/relay/E2EE/TLS/storage are unchanged.
+- Updated duration-dependent smoke phases, including early busy checks and
+  held/inertial gestures. Retain all 24 actual draw/order and callback/pose
+  assertions. Added direct full-turn measurements and normal timing bounds;
+  sanitizer builds retain liveness/memory checks without release-speed claims.
+- Builds and complete simulator suites PASS: 4/4 normal, 4/4 ASan/UBSan.
+  Normal full turns measured 280–281 ms; final snapshot run 280/280/280 ms.
+  Instrumented visible turns ~0.55–0.60 s. Heartbeat maxima 24/89 ms, LVGL heap
+  ~3.75 MiB. Initial/round-trip pixels match each other and the pre-optimization
+  GUI snapshot. `git diff --check` PASS. Updated root/simulator guides,
+  architecture and PROJECT_STATUS. No commit, device or server actions.
+- Next: manual visual review with the existing simulator launch command;
+  slower hardware/display paths may extend playback to retain all frames.
+
+
+## 2026-11-13 — Reverse animation direction, preserve personality navigation
+
+- Changed only the animation signs in `falafel_home.c`: left/next uses -1,
+  right/previous +1 modulo 24. Personality destinations, frame state, timer,
+  cancellation and busy-swipe handling are unchanged.
+- Inverted the rendered-frame expectations in `ui_smoke.c`, including flipped
+  wheel and nonzero-pose resumption; updated the public GUI comment and current
+  simulator/architecture/status documentation. The earlier entry below records
+  the original mapping, superseded by this inversion.
+- Normal and ASan/UBSan simulator builds PASS; circular_gui_smoke 1/1 PASS in
+  each configuration (14.85 s / 28.38 s). Existing assertions still verify one
+  personality callback, retained pose, round trip, repeated/held swipes and tails.
+  `git diff --check` PASS. No assets, input policy, E2EE, TLS, firmware or relay
+  changes, no commit. Next: manual visual review with the existing launch command.
+
+
+## 2026-11-13 — Bidirectional Falafel GUI rotation
+
+- Fixed `shared/gui/falafel_home.c`: next/left advances the existing 24 PNG
+  descriptors; previous/right traverses them backwards, modulo 24. One LVGL
+  timer performs a full cycle and commits one selection/callback. Retain the
+  frame on completion/cancellation and start subsequent turns there; no forced
+  frame-zero/static restore. Added a GUI busy-state query for input adapters.
+- Updated `simulator/src/trackpad_navigation.c`: busy/subthreshold bursts and
+  inertial tails remain consumed until the 220 ms quiet boundary. Publish busy/
+  visibility atomically from the GUI thread, keeping LVGL object access out of
+  the SDL watch. Existing pointer press-time lock also covers held drags.
+- Expanded `ui_smoke.c` to verify actual opposite draw order, nine completions,
+  left/right return, repeated busy swipes, press held past completion, flipped
+  wheel, inertial tail, nonzero-pose cancellation/resume and single callbacks.
+  The direction-order assertion fails on the original code. CTest uses SDL dummy
+  to isolate automation from physical input; visible direct launch is documented.
+- Normal simulator suite 4/4 PASS; all four ASan/UBSan checks PASS after GUI retry.
+  Instrumented PNG decoding exceeded the old 200 ms heartbeat budget without
+  sanitizer findings; CMake sanitizer builds use a test-only 600 ms budget,
+  normal stays 200 ms. Normal smoke repeated three times PASS (89/70/74 ms
+  maximum gaps); sanitizer smoke PASS (260 ms). Peak LVGL heap remains ~3.75 MiB.
+  Initial/left-right return snapshots have identical pixels; normal/reverse
+  images inspected and native macOS startup exercised. Local host C6/simulator
+  E2EE and relay mTLS regression entries 2/2 PASS. `git diff --check` PASS.
+- Updated root/simulator guides, architecture and PROJECT_STATUS. Assets, GUI
+  styling, personality set/order, firmware, relay, crypto/TLS and persisted data
+  are unchanged. No real-store access/provisioning, flash, deployment or commit.
+  Physical trackpad/momentum and S3 rendering performance remain manual work.
+
+
 ## 2026-11-12 — Optional mTLS for relay, C6 and simulator
 
 - Added standard-library SSLContext/CERT_REQUIRED relay mode with nonblocking
