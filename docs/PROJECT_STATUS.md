@@ -1,8 +1,18 @@
 # Falafel project status
 
-Last updated: 2026-11-13
+Last updated: 2026-11-16
 
 ## Current status
+
+2026-11-16 — Three Blender outfits integrated into the existing GUI timer.
+The 72 PNGs are embedded by personality/angle; source outfit switches to the
+selected outfit at rear frame 12, without changing the index or committing
+application state until completion. Left -1/right +1, 280 ms target, pose
+continuity and busy-gesture rejection are preserved. A shared 320px stage and
+uniform scale retain the Taxi car and body proportions; its vertical position
+moves down 28px to keep the chef hat clear of the envelope. The converter reads
+the common canvas dimensions; 466px remains the simulator size, not a hardware
+selection. Firmware, relay, E2EE and mTLS are unchanged.
 
 2026-11-13 — Full GUI rotation now targets 280 ms with all 24 existing frames.
 Absolute 11/12 ms deadlines, 5 ms refresh and an optimized LVGL build avoid the
@@ -169,12 +179,14 @@ its application history now commits before consume, then archives replay
 IDs and exact receipts before reusing active slots.
 
 The first circular simulator UI is implemented: fixed 466 × 466 SDL2/LVGL 9.4
-window, supplied PNG embedded at build time, clipped circular dark-sage viewport,
+window, three Blender outfits embedded at build time, clipped circular dark-sage viewport,
 mouse/trackpad personality selection with 24-frame prerendered rotation, and
 real mailbox navigation and preset E2EE sending. The controller changes no
 cryptography, relay implementation, protocol or mailbox format.
 
 ## Implemented features
+
+- Three 24-frame outfits with rear-view switching and deferred application state.
 
 - Opposite left/right cyclic GUI rotation with retained frame orientation,
   single deferred selection/callback and busy gesture/inertia rejection.
@@ -221,6 +233,12 @@ cryptography, relay implementation, protocol or mailbox format.
   backend, explicit unpair, and optional local identity rotation.
 
 ## Verified functionality
+
+- 2026-11-16: normal and ASan/UBSan simulator builds/full suites pass 4/4 each.
+  Draw-level checks cover all adjacent outfit transitions, frame-12 switching,
+  deferred state/callback, repeated/busy swipes, return and remote cancellation.
+  Normal direct turns 280–281 ms; 72 alpha bounds and rendered framing inspected.
+  Converter accepts a synthetic non-466 canvas and rejects inconsistent sizes.
 
 - 2026-11-13, 280 ms timing: full simulator suites 4/4 normal and 4/4 ASan/UBSan
   PASS; all 24 draws and prior navigation/input/pose assertions retained. Direct
@@ -319,6 +337,11 @@ have been verified locally but have not yet run in GitHub Actions.
 
 ## Current architecture
 
+GUI assets are compressed read-only PNG descriptors indexed by personality and
+angle. A displayed-outfit latch changes at frame 12 independently of committed
+application personality. One frame is decoded per draw, with no decoded cache;
+72 compressed PNGs occupy 7.75 MiB. Firmware has no GUI integration.
+
 Optional TLS wraps the existing framed transport below mailbox/link. The Python
 relay uses SSLContext/DefaultSelector; C6 and simulator share the Mbed TLS client
 adapter. Only authenticated/authorized registration can replace an mTLS owner.
@@ -376,8 +399,9 @@ receive effects before consume; replay archive persists before active-slot reuse
   filesystem or hardware failure.
 - GUI smoke and two-window E2EE automation cover rotation, messages and shutdown;
   broader interaction/accessibility and physical trackpad tests remain pending. The
-  circular UI uses one character for all personalities, a bidirectional 24-frame
-  cycle with retained pose and an always-visible demo icon. PNG decode is synchronous per draw;
+  circular UI uses three outfits, a bidirectional 24-frame
+  cycle with retained pose and an always-visible envelope. The final hardware
+  display model/resolution is undecided. PNG decode is synchronous per draw;
   slow platforms extend playback. ESP32-S3 flash/PSRAM and timing need validation.
 - ESP-IDF storage adapter is implemented and C6 cross-built; physical NVS
   power-cut/GC/wear and S3 validation remain pending. The user reports successful
@@ -442,6 +466,9 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
+Visually review outfit switching with the physical trackpad; after selecting the
+circular display hardware, validate framing and PNG decoding/memory on that target.
+
 Review [the separate mTLS deployment/hardware/rollback procedure](mtls.md).
 Keep the current Proxmox 8765 service/proxy intact; stage an independent TLS
 listener/cache on 8766 and use the documented temporary SSH forwarding for the
@@ -460,6 +487,9 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-16 — Outfit switching at the rear pose with 72 Blender sprites, unchanged
+swipe semantics and completed simulator software verification/documentation.
 
 2026-11-13 — 280 ms full-cycle target with all 24 frames, optimized bounded-memory
 rendering, unchanged navigation/input/pose behavior and full software verification.

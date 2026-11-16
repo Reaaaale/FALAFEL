@@ -1,5 +1,43 @@
 # Falafel development changelog
 
+## 2026-11-16 — Outfit switching at the rear pose
+
+- Integrated the 72 supplied PNGs at
+  `simulator/assets/falafel_sprites/falafel_sprites/{taxi,cuoco,promemoria}/frame_00..23.png`.
+  Simulator CMake and `tools/embed_simulator_asset.py` now embed a personality ×
+  angle descriptor table, reading actual common RGBA8 canvas dimensions instead
+  of requiring 466px. Old still/rotation PNGs remain in the repository but are
+  not linked. Compressed data totals 8,125,811 bytes (7.75 MiB); one decoded frame,
+  disabled decoded cache and the existing 8 MiB LVGL heap remain unchanged.
+- `shared/gui/falafel_home.c` reuses the 24-step timer: starts in the current
+  outfit, swaps at rear frame 12 without changing angle, then commits application
+  personality and one callback only at completion. A displayed-outfit latch
+  survives index wraparound. Remote cancellation keeps the angle and restores
+  the remote outfit, including unchanged remote selections after the rear swap.
+  Left -1/right +1, bounded order, 280 ms target and busy-swipe policy are retained.
+- All outfits use the same scale and 320px stage, lowered 28px so the chef hat
+  clears the existing envelope and the Taxi car clears the label. Palette,
+  source PNGs and body proportions are preserved. Final circular hardware model
+  and resolution remain undecided; no firmware/relay/E2EE/mTLS modifications.
+- Extended SDL/LVGL smoke to check actual drawn outfit/angle before and after
+  the rear pose, unchanged application state during playback, all four adjacent
+  transitions, consecutive turns, round trips and cancellation/resumption.
+  Eleven committed transitions are checked, retaining busy/held/inertial input,
+  message availability, callback counts, timing and heartbeat assertions.
+- Verification: normal and ASan/UBSan builds pass; all four tests in each simulator
+  suite pass (GUI smoke, encrypted history, controller and SDL E2EE integration).
+  Final normal integration tests initially failed because the sandbox denied
+  localhost socket bind; both passed on the authorized rerun. No sanitizer reports.
+  Final normal timed turns 280–281 ms; sanitized visible turns ~0.53–0.60 s.
+  GUI heartbeat maxima 24/44 ms; LVGL heap peak 3,936,064 bytes. Checked alpha
+  bounds of all 72 PNGs and inspected contact sheets/rendered framing. Synthetic
+  20 × 30 canvases embed successfully; mixed canvas dimensions are rejected.
+  `git diff --check` passes. Updated root/simulator guides, architecture and
+  PROJECT_STATUS. No commit, device flash or server actions.
+- Next: manual trackpad review, then target-specific framing/performance/memory
+  checks once circular display hardware is selected.
+
+
 ## 2026-11-13 — 280 ms rotation with all 24 frames
 
 - Added the 280 ms duration constant in `falafel_gui_internal.h`; updated

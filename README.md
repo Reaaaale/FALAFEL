@@ -177,14 +177,16 @@ relay restart, recovered receipts, partial I/O, forged payloads and capacity.
 
 
 The first circular Falafel UI now runs in a 466 × 466 SDL window: the supplied
-PNG is scaled to a 320px stage on dark sage with cream text and toasted-orange
+PNGs are scaled to a 320px stage on dark sage with cream text and toasted-orange
 accents; swipes select Taxi/Cuoco/Promemoria, and the smaller envelope
-opens the real mailbox view, with preset sending and a return button. The same PNG serves all three
-personalities; left/right swipes traverse the existing 24-frame rotation in
+opens the real mailbox view, with preset sending and a return button. Three Blender outfits supply 24 frames each; the outfit switches at rear-view
+frame 12 without changing the angle. Left/right swipes traverse the rotation in
 opposite directions with a 280 ms full-turn target before committing one selection.
 The displayed pose is
 retained across turns/cancellation, and busy gestures are discarded without
 queuing. Decoded-image caching remains disabled. Build/run commands,
 memory estimates and the GUI smoke test are in
 [the simulator guide](simulator/README.md). Messaging uses the E2EE worker;
-no PNG, protocol, relay implementation or cryptographic changes were required.
+protocol, relay implementation and cryptography are unchanged. The converter reads
+the shared PNG canvas dimensions; 466 × 466 is the current simulator size, not
+a final hardware display choice.

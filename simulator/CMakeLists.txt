@@ -8,26 +8,22 @@ find_package(SDL2 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 include(../cmake/simulator_messaging.cmake)
-set(FALAFEL_CHARACTER_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/falafel_character.c")
-add_custom_command(OUTPUT "${FALAFEL_CHARACTER_SOURCE}"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../tools/embed_simulator_asset.py"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/falafel.png" "${FALAFEL_CHARACTER_SOURCE}"
-    DEPENDS assets/falafel.png ../tools/embed_simulator_asset.py
-    VERBATIM)
-
 set(FALAFEL_ROTATION_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/falafel_rotation.c")
 set(FALAFEL_ROTATION_PNGS)
-foreach(frame RANGE 0 23)
-    if(frame LESS 10)
-        set(frame_name "00${frame}")
-    else()
-        set(frame_name "0${frame}")
-    endif()
-    list(APPEND FALAFEL_ROTATION_PNGS "assets/falafel_rotation/frame_${frame_name}.png")
+set(FALAFEL_SPRITE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/assets/falafel_sprites/falafel_sprites")
+foreach(outfit taxi cuoco promemoria)
+    foreach(frame RANGE 0 23)
+        if(frame LESS 10)
+            set(frame_name "0${frame}")
+        else()
+            set(frame_name "${frame}")
+        endif()
+        list(APPEND FALAFEL_ROTATION_PNGS "${FALAFEL_SPRITE_ROOT}/${outfit}/frame_${frame_name}.png")
+    endforeach()
 endforeach()
 add_custom_command(OUTPUT "${FALAFEL_ROTATION_SOURCE}"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/../tools/embed_simulator_asset.py"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/falafel_rotation" "${FALAFEL_ROTATION_SOURCE}"
+        "${FALAFEL_SPRITE_ROOT}" "${FALAFEL_ROTATION_SOURCE}"
     DEPENDS ${FALAFEL_ROTATION_PNGS} ../tools/embed_simulator_asset.py
     VERBATIM)
 
@@ -60,7 +56,6 @@ add_executable(falafel_simulator
     src/main.c
     src/trackpad_navigation.c
     ../shared/gui/falafel_gui.c
-    "${FALAFEL_CHARACTER_SOURCE}"
     "${FALAFEL_ROTATION_SOURCE}"
     src/ui_smoke.c
     ../shared/gui/falafel_theme.c

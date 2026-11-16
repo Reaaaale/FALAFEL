@@ -147,20 +147,28 @@ message is inserted and no session-only sent-history limitation remains.
 
 ## Character and interaction
 
-`simulator/assets/falafel.png` is the single character for Taxi, Cuoco and
-Promemoria. CMake runs `tools/embed_simulator_asset.py` to embed the original
-PNG as a RAW_ALPHA LVGL descriptor in the build directory. LVGL's built-in
-LodePNG decoder loads it; no runtime file path or additional image library is
-needed. Replacing the PNG triggers regeneration on the next build. The earlier
-`shared/assets` illustrations and their generator remain in the repository but
-are not linked into this simulator view.
+The 72 Blender PNGs live under
+`simulator/assets/falafel_sprites/falafel_sprites/{taxi,cuoco,promemoria}/`,
+with `frame_00.png` through `frame_23.png` in each directory. The nested directory
+is the actual imported asset location. CMake embeds the originals as compressed
+RAW_ALPHA LVGL descriptors, indexed by personality and angle. LVGL's built-in
+LodePNG decoder needs no runtime file paths or additional image library. All 72
+files are build dependencies. The older `falafel.png`, `falafel_rotation/` and
+`shared/assets` illustrations remain in the repository but are not linked here.
 
-The 466px source is uniformly scaled into a 320 × 320 stage; it is neither
-stretched nor cropped. Transparent/black margins in the source are retained.
-The character leaves room for a 44 × 40 envelope button (18px icon) above its
-head and a quiet 16px personality name with three 5px position dots below.
-Text is cream `#F3E9D8`, accents are toasted orange `#D88A35`, and message
-surfaces use muted sage `#40564A`. Backgrounds are flat, without gradients.
+All supplied canvases are currently 466 × 466 RGBA8. The converter reads their
+actual dimensions and requires a common canvas across outfits, without fixing
+them to 466px. This is an asset/simulator size, **not a selected hardware display**;
+the circular device model and final display resolution remain undecided.
+The source canvases share one uniform scale into a 320 × 320 stage, with original
+transparent margins and no per-outfit resizing or cropping. The common stage
+is centered 32px below the screen center (28px below the earlier layout), leaving
+the chef hat below the envelope and the Taxi car above the personality label.
+Alpha bounds were checked for all 72 frames: none touches a canvas edge;
+Taxi's union is x=79..386, y=81..362. Visual contact sheets confirm consistent
+body size. The 44 × 40 envelope, 18px icon, 16px label and three 5px dots remain.
+Text is cream `#F3E9D8`, accents toasted orange `#D88A35`, and message surfaces
+muted sage `#40564A`; backgrounds remain flat without gradients.
 
 Drag at least 50 pixels horizontally with the left mouse button, or scroll
 horizontally with two fingers on a macOS trackpad, to change personality. Vertical
@@ -174,8 +182,11 @@ starting pose after all 24 steps. Absolute deadlines distribute intervals of
 When home is visible, the next step waits for the current frame's draw event.
 If rendering cannot keep up, playback extends rather than dropping frames. The current frame is retained between animations;
 there is no forced switch to the static PNG on completion/cancellation and no
-reset to frame zero when starting another turn. Initial creation still uses
-the unchanged static PNG, visually identical to rotation frame zero.
+reset to frame zero when starting another turn. Initial creation uses frame zero
+of the current personality. A turn starts in the current outfit, then switches
+to the destination outfit exactly at rear-view **frame 12**, keeping the same
+angular index. That outfit remains latched through wraparound to completion;
+application personality, label, dots and callback still change only at the end.
 
 Labels, dots and the personality callback commit exactly once at completion.
 New swipes are discarded while playing, with no queue or overlapping timer.
@@ -184,7 +195,8 @@ Trackpad events from a busy gesture, including subthreshold deltas and its
 inertial tail, stay latched until 220 ms without wheel events; a fresh gesture
 can then be accepted. SDL natural-scrolling inversion is normalized before
 choosing the direction. Remote synchronized state cancels a pending choice
-without a local callback, retaining its displayed pose for the next animation.
+without a local callback, retaining its angular pose and restoring the remotely
+selected outfit, even if the selected personality has not changed.
 Playback still completes while messages are open. Trackpad input is observed
 with `SDL_AddEventWatch`; LVGL still owns the SDL event loop. The watch reads
 an atomic busy/visibility snapshot published by the GUI thread, not LVGL objects.
@@ -199,17 +211,18 @@ and status-bar chrome remain unexposed in this layout.
 
 ## Asset memory and ESP32-S3 limits
 
-CMake also runs `tools/embed_simulator_asset.py` on the rotation directory. It
-validates 24 RGBA8 466 × 466 PNGs and emits compressed `const` descriptors in
-`build/simulator/falafel_rotation.c`. Both generated C files are build artifacts;
-source PNGs are unchanged. Runtime paths and file reads are unnecessary.
+CMake runs `tools/embed_simulator_asset.py` on the nested sprite directory. It
+validates 3 × 24 RGBA8 PNGs with identical nonempty dimensions and emits compressed
+`const` descriptors in `build/simulator/falafel_rotation.c`. The generated C file
+is a build artifact; source PNGs are unchanged. Runtime file reads are unnecessary.
 
-The 24 compressed frames total **2,847,217 bytes (2.72 MiB)** in read-only data,
-plus 127,204 bytes for the static PNG. `LV_CACHE_DEF_SIZE=0` explicitly disables
-decoded-image caching. The single software draw unit decodes only the image
-currently being drawn and frees it afterwards. One RGBA frame is **868,624 bytes
-(848 KiB)**; the 24-frame decoded set (19.88 MiB) is never allocated. PNG inflate
-scratch space, clipping layers and display buffers are additional costs.
+The 72 compressed frames total **8,125,811 bytes (7.75 MiB)** in read-only data;
+the old static PNG/rotation sequence is no longer linked. `LV_CACHE_DEF_SIZE=0`
+explicitly disables decoded-image caching. The single software draw unit decodes
+only the image currently being drawn and frees it afterwards. One current RGBA
+frame is **868,624 bytes (848 KiB)**; the complete 72-frame decoded set (59.64 MiB)
+is never allocated. PNG inflate scratch, clipping layers and display buffers
+are additional costs.
 
 The desktop LVGL heap remains **8 MiB**. The smoke test measured a peak of
 **about 3.75 MiB**, including snapshots, GUI objects, decode scratch
@@ -220,8 +233,8 @@ does not sleep, loop over frames or decode images itself; LodePNG decoding
 happens synchronously during each draw. LVGL is compiled with `-O2` on Clang/GCC,
 including debug builds, so its PNG decode, scaling/blending and memory routines
 can sustain the 280 ms target. Debug symbols, assertions and sanitizer flags
-are retained; application/transport compilation flags are unchanged. Assets,
-decoder source, decoded-image cache policy and the 8 MiB budget are unchanged.
+are retained; application/transport compilation flags, decoder source,
+decoded-image cache policy and the 8 MiB budget are unchanged.
 Slow machines or sanitizer instrumentation can extend playback; all visible
 frames are still drawn in order.
 
@@ -230,7 +243,7 @@ hardware build must provide enough flash for the compressed assets, configure
 and measure suitable PSRAM/allocation and display buffers, and benchmark PNG
 decoding and circular clipping. The desktop 8 MiB heap is not an embedded RAM
 budget. Lower-resolution assets, another image format or worker-assisted
-single-frame decoding may be necessary to retain 600–800 ms playback on the
+single-frame decoding may be necessary to retain the 280 ms playback target on the
 board. No ESP32-S3 compilation, physical display or touch verification is claimed.
 The Noise K network protocol/provider and relay remain unchanged; local mailbox
 retirement and the v2 persistence marker are described above.
@@ -257,19 +270,33 @@ FALAFEL_SCREENSHOTS=/tmp/falafel-ui ctest --test-dir build/simulator --output-on
 video driver under CTest, avoiding interference from physical desktop input.
 It injects mouse drags and normal/flipped horizontal wheel events. Actual draw
 events check all 24 frame descriptors in opposite cyclic orders. It checks
-left/right return to the starting pose, nine committed transitions, rapid busy
+left/right return to the starting pose, eleven committed transitions, rapid busy
 swipes, a drag held across completion, a subthreshold busy burst and its tail
 across completion, limits, remote cancellation/resumption from a nonzero pose,
-single callbacks and message/banner availability. Test timeout is 40 seconds.
+single callbacks and message/banner availability. Each observed draw checks the
+source outfit before frame 12, destination outfit afterwards and unchanged
+application personality while busy. All four adjacent transitions, consecutive
+turns and return paths are covered; Taxi ↔ Promemoria goes through Cuoco, retaining
+the existing bounded navigation. Test timeout is 40 seconds.
 The 10 ms heartbeat must keep running throughout: maximum gap <=200 ms normally;
 CMake builds using `-fsanitize` use 600 ms because instrumented synchronous PNG
 decoding is not a release-performance measurement. Runtime animation timing and
 assets are identical between these builds. PNG decode still extends playback
 rather than skipping frames. Optional BMP snapshots cover home, rotation,
-messages/banner, left/right return and reverse rotation after cancellation.
+messages/banner, left/right return, Cuoco/Promemoria and reverse rotation after cancellation.
 They snapshot LVGL because SDL backbuffers are undefined after present.
 
-Latest timing verification (2026-11-13): normal and ASan/UBSan builds and full
+Outfit verification (2026-11-16): both simulator builds and full suites pass
+**4/4 normal and 4/4 ASan/UBSan**. Final normal direct turns measured 280–281 ms;
+instrumented visible turns take roughly 0.53–0.60 s, retaining all frames.
+Final GUI heartbeat maxima were 24/44 ms, with LVGL heap peak 3,936,064 bytes.
+Inspected rendered Taxi/Cuoco and sprite contact sheets: car and hat fit, with
+shared body scale and unchanged palette. A synthetic 20 × 30 canvas also embeds
+successfully; inconsistent dimensions are rejected. Final normal integration
+reruns required local-socket access after the sandbox denied `bind(127.0.0.1)`.
+Hardware display/touch/performance remains unverified.
+
+Earlier timing verification (2026-11-13): normal and ASan/UBSan builds and full
 simulator suites **4/4 each PASS**. The expanded smoke checks all 24 rendered
 frames, both directions, pose retention, busy/held swipes, inertial tails and
 single selection callbacks with shorter busy-check timings. Normal full-turn

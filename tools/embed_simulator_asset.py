@@ -1,33 +1,43 @@
 #!/usr/bin/env python3
-"""Embed the simulator PNG at build time; no runtime working-directory dependency."""
+"""Embed simulator PNGs at build time; no runtime working-directory dependency."""
 import pathlib
 import struct
 import sys
 source, target = map(pathlib.Path, sys.argv[1:])
 if source.is_dir():
-    frames = [source / f"frame_{i:03}.png" for i in range(24)]
-    lines = ['/* Generated rotation PNGs: compressed, read-only data. */',
+    personalities = ('taxi', 'cuoco', 'promemoria')  # falafel_personality_t order
+    lines = ['/* Generated outfit PNGs: compressed, read-only data. */',
              '#include "falafel_gui_internal.h"']
     total = 0
-    for i, frame in enumerate(frames):
-        data = frame.read_bytes()
-        if (data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR'
-                or struct.unpack('>II', data[16:24]) != (466, 466)
-                or data[24:26] != bytes([8, 6])):
-            raise ValueError(f"Expected 466x466 RGBA8 PNG: {frame}")
-        total += len(data)
-        lines.append(f'static const uint8_t frame_{i:03}[] = {{')
-        lines.extend(','.join(f'0x{b:02x}' for b in data[j:j+24])+','
-                     for j in range(0, len(data), 24))
-        lines.append('};')
-    lines.append('const lv_image_dsc_t falafel_asset_rotation[FALAFEL_ROTATION_FRAME_COUNT] = {')
-    for i in range(24):
-        lines.extend(['{ .header.magic=LV_IMAGE_HEADER_MAGIC,',
-                      '.header.cf=LV_COLOR_FORMAT_RAW_ALPHA, .header.w=466, .header.h=466,',
-                      f'.data_size=sizeof(frame_{i:03}), .data=frame_{i:03} }},'])
+    dimensions = None
+    for outfit in personalities:
+        for i in range(24):
+            frame = source / outfit / f"frame_{i:02}.png"
+            data = frame.read_bytes()
+            if (data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR'
+                    or data[24:26] != bytes([8, 6])):
+                raise ValueError(f"Expected RGBA8 PNG: {frame}")
+            size = struct.unpack('>II', data[16:24])
+            if not all(size) or (dimensions is not None and size != dimensions):
+                raise ValueError(f"All outfits must share one nonempty canvas: {frame}")
+            dimensions = size
+            total += len(data)
+            lines.append(f'static const uint8_t {outfit}_{i:02}[] = {{')
+            lines.extend(','.join(f'0x{b:02x}' for b in data[j:j+24])+','
+                         for j in range(0, len(data), 24))
+            lines.append('};')
+    lines.append('const lv_image_dsc_t falafel_asset_rotation[FALAFEL_PERSONALITY_COUNT][FALAFEL_ROTATION_FRAME_COUNT] = {')
+    w, h = dimensions
+    for outfit in personalities:
+        lines.append('{')
+        for i in range(24):
+            lines.extend(['{ .header.magic=LV_IMAGE_HEADER_MAGIC,',
+                          f'.header.cf=LV_COLOR_FORMAT_RAW_ALPHA, .header.w={w}, .header.h={h},',
+                          f'.data_size=sizeof({outfit}_{i:02}), .data={outfit}_{i:02} }},'])
+        lines.append('},')
     lines.append('};')
     target.write_text('\n'.join(lines)+'\n')
-    print(f"Embedded 24 rotation PNGs: {total} compressed bytes")
+    print(f"Embedded 72 outfit PNGs ({w}x{h}): {total} compressed bytes")
     sys.exit(0)
 data = source.read_bytes()
 if data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':

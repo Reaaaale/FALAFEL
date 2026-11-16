@@ -46,3 +46,6 @@ __pycache__/
 *.csr
 *.key
 /tls-credentials/
+
+# Dati locali e identita demo Falafel
+.local/

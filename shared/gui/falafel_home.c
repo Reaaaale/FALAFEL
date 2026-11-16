@@ -3,7 +3,7 @@
 static const char *names[FALAFEL_PERSONALITY_COUNT] = {"Taxi", "Cuoco", "Promemoria"};
 static lv_obj_t *title_label, *art_stage, *character_image, *message_button;
 static lv_timer_t *rotation_timer;
-static falafel_personality_t pending_personality;
+static falafel_personality_t pending_personality, displayed_outfit;
 static int8_t rotation_direction;
 static uint8_t rotation_steps_remaining;
 static uint32_t rotation_started_at;
@@ -66,7 +66,11 @@ static void rotation_step(lv_timer_t *timer)
     }
     falafel_gui.rotation_frame = (uint8_t)((falafel_gui.rotation_frame +
         rotation_direction + FALAFEL_ROTATION_FRAME_COUNT) % FALAFEL_ROTATION_FRAME_COUNT);
-    lv_image_set_src(character_image, &falafel_asset_rotation[falafel_gui.rotation_frame]);
+    /* Swap only the outfit at the rear pose; angular index and application
+     * personality keep their existing lifetimes. Latch through wraparound. */
+    if (falafel_gui.rotation_frame == FALAFEL_ROTATION_BACK_FRAME)
+        displayed_outfit = pending_personality;
+    lv_image_set_src(character_image, &falafel_asset_rotation[displayed_outfit][falafel_gui.rotation_frame]);
     rotation_frame_drawn = false;
     if (--rotation_steps_remaining) {
         schedule_rotation_step(timer);
@@ -89,7 +93,8 @@ static bool select_personality(falafel_personality_t selected, int8_t direction)
     falafel_gui.personality_animating = true;
     /* Continue from the displayed pose, including after remote cancellation.
      * A full cycle returns to this exact frame; never swap back to a still. */
-    lv_image_set_src(character_image, &falafel_asset_rotation[falafel_gui.rotation_frame]);
+    displayed_outfit = falafel_gui.personality;
+    lv_image_set_src(character_image, &falafel_asset_rotation[displayed_outfit][falafel_gui.rotation_frame]);
     rotation_frame_drawn = false;
     rotation_started_at = lv_tick_get();
     schedule_rotation_step(rotation_timer);
@@ -103,10 +108,10 @@ bool falafel_gui_set_personality_remote(falafel_personality_t selected)
     /* Synchronized state supersedes a pending local choice, even if it equals
      * the current personality. Never emit a stale local callback afterwards. */
     if (falafel_gui.personality_animating) stop_rotation();
-    if (selected == falafel_gui.personality) return false;
+    bool changed = selected != falafel_gui.personality;
     falafel_gui.personality = selected;
     falafel_home_refresh();
-    return true;
+    return changed;
 }
 
 static void home_deleted(lv_event_t *event)
@@ -190,15 +195,19 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
     art_stage = lv_obj_create(root);
     lv_obj_remove_style_all(art_stage);
     lv_obj_set_size(art_stage, 320, 320);
-    lv_obj_align(art_stage, LV_ALIGN_CENTER, 0, 4);
+    /* Shared framing leaves the chef hat below the envelope and the taxi
+     * above the label, without resizing individual outfits. */
+    lv_obj_align(art_stage, LV_ALIGN_CENTER, 0, 32);
     lv_obj_clear_flag(art_stage, LV_OBJ_FLAG_SCROLLABLE);
     character_image = lv_image_create(art_stage);
     lv_obj_t *image = character_image;
     falafel_gui.rotation_frame = 0;
-    lv_image_set_src(image, &falafel_asset_character);
+    displayed_outfit = falafel_gui.personality;
+    const lv_image_dsc_t *asset = &falafel_asset_rotation[displayed_outfit][0];
+    lv_image_set_src(image, asset);
     /* LVGL scale unit is 256. Uniform fit in a 320px square, no cropping. */
-    uint32_t edge = falafel_asset_character.header.w > falafel_asset_character.header.h
-        ? falafel_asset_character.header.w : falafel_asset_character.header.h;
+    uint32_t edge = asset->header.w > asset->header.h
+        ? asset->header.w : asset->header.h;
     lv_image_set_scale(image, (uint32_t)(320u * 256u / edge));
     lv_obj_center(image);
     lv_obj_add_event_cb(image, rotation_drawn, LV_EVENT_DRAW_POST, NULL);
@@ -236,6 +245,11 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
 
 void falafel_home_refresh(void)
 {
+    if (!falafel_gui.personality_animating) {
+        displayed_outfit = falafel_gui.personality;
+        lv_image_set_src(character_image,
+            &falafel_asset_rotation[displayed_outfit][falafel_gui.rotation_frame]);
+    }
     lv_obj_set_style_bg_color(message_button, lv_color_hex(falafel_gui.unread_count
         ? FALAFEL_COLOR_ACCENT : FALAFEL_COLOR_SURFACE), 0);
     lv_label_set_text(title_label, names[falafel_gui.personality]);

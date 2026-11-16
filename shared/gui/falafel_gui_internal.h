@@ -22,8 +22,8 @@
 
 #define FALAFEL_ROTATION_FRAME_COUNT 24
 #define FALAFEL_ROTATION_DURATION_MS 280
-extern const lv_image_dsc_t falafel_asset_rotation[FALAFEL_ROTATION_FRAME_COUNT];
-extern const lv_image_dsc_t falafel_asset_character;
+#define FALAFEL_ROTATION_BACK_FRAME 12
+extern const lv_image_dsc_t falafel_asset_rotation[FALAFEL_PERSONALITY_COUNT][FALAFEL_ROTATION_FRAME_COUNT];
 extern const lv_image_dsc_t falafel_asset_taxi;
 extern const lv_image_dsc_t falafel_asset_cook;
 extern const lv_image_dsc_t falafel_asset_reminder;
