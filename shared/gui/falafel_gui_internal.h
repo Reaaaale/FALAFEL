@@ -35,6 +35,11 @@ typedef struct {
     lv_obj_t *home;
     lv_obj_t *messages;
     lv_obj_t *composer;
+    lv_obj_t *menu;
+    lv_obj_t *games;
+    lv_obj_t *settings;
+    falafel_gui_page_t page;
+    falafel_gui_page_t messages_parent;
     lv_obj_t *notification;
     lv_obj_t *notification_label;
     lv_timer_t *notification_timer;
@@ -65,3 +70,11 @@ void falafel_composer_reset(void);
 void falafel_gui_show_home(void);
 void falafel_gui_show_messages(void);
 void falafel_gui_show_composer(void);
+
+/* Shared circular-page primitives. New views size themselves from their parent. */
+lv_obj_t *falafel_page_create(lv_obj_t *parent, const char *title);
+lv_obj_t *falafel_page_button(lv_obj_t *parent, const char *text,
+                              int32_t width_percent, int32_t y_percent);
+void falafel_page_back(lv_obj_t *parent, const char *text);
+lv_obj_t *falafel_menu_create(lv_obj_t *parent);
+lv_obj_t *falafel_entry_create(lv_obj_t *parent, const char *title, const char *body);

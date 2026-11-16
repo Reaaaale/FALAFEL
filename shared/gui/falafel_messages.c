@@ -19,7 +19,7 @@ bool falafel_gui_send_preset(void)
 }
 static void preset_clicked(lv_event_t *event) { (void)event; falafel_gui_send_preset(); }
 
-static void back_clicked(lv_event_t *event) { (void)event; falafel_gui_show_home(); }
+static void back_clicked(lv_event_t *event) { (void)event; falafel_gui_go_back(); }
 static lv_obj_t *header_button(lv_obj_t *parent, const char *text, int32_t width, uint32_t color)
 {
     lv_obj_t *button = lv_button_create(parent);
@@ -34,21 +34,12 @@ static lv_obj_t *header_button(lv_obj_t *parent, const char *text, int32_t width
 lv_obj_t *falafel_messages_create(lv_obj_t *parent)
 {
     view_count=0;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, 466, 466);
-    lv_obj_align(root, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *title = falafel_theme_create_label(root, "Messaggi",
-                                                 &lv_font_montserrat_22, FALAFEL_COLOR_WHITE);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 76);
+    lv_obj_t *root = falafel_page_create(parent, "Messaggi");
 
     message_list = lv_obj_create(root);
-    lv_obj_set_size(message_list, 286, 158);
-    lv_obj_align(message_list, LV_ALIGN_TOP_MID, 0, 112);
+    lv_obj_set_size(message_list, LV_PCT(62), LV_PCT(34));
+    lv_obj_align(message_list, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_y(message_list, LV_PCT(24));
     lv_obj_set_style_bg_color(message_list, lv_color_hex(FALAFEL_COLOR_SAGE), 0);
     lv_obj_set_style_border_color(message_list, lv_color_hex(FALAFEL_COLOR_SAGE), 0);
     lv_obj_set_style_border_width(message_list, 2, 0);
@@ -63,16 +54,21 @@ lv_obj_t *falafel_messages_create(lv_obj_t *parent)
     empty_label = falafel_theme_create_label(message_list, "Nessun messaggio disponibile",
         &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
     lv_obj_t *preset = header_button(root, "Invia: Sto arrivando", 220, FALAFEL_COLOR_SURFACE);
-    lv_obj_align(preset, LV_ALIGN_TOP_MID, 0, 280);
+    lv_obj_set_size(preset, LV_PCT(58), LV_PCT(9));
+    lv_obj_align(preset, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_y(preset, LV_PCT(60));
     lv_obj_add_event_cb(preset, preset_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *back = header_button(root, "Torna a Falafel", 202, FALAFEL_COLOR_YELLOW);
-    lv_obj_set_height(back, 48);
-    lv_obj_align(back, LV_ALIGN_TOP_MID, 0, 330);
+    lv_obj_t *back = header_button(root, LV_SYMBOL_LEFT " Indietro", 202, FALAFEL_COLOR_YELLOW);
+    lv_obj_set_size(back, LV_PCT(44), LV_PCT(10));
+    lv_obj_align(back, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_y(back, LV_PCT(71));
     lv_obj_add_event_cb(back, back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *scope = falafel_theme_create_label(root,
         "Storico locale cifrato.\nLettura su questo dispositivo.", &lv_font_montserrat_12, FALAFEL_COLOR_CREAM);
     lv_obj_set_style_text_align(scope, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(scope, LV_ALIGN_TOP_MID, 0, 388);
+    lv_obj_set_width(scope, LV_PCT(56));
+    lv_obj_align(scope, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_y(scope, LV_PCT(83));
     return root;
 }
 
@@ -89,7 +85,7 @@ static void add_row(const char *text, bool sent, message_view *view)
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *message = lv_obj_create(row);
-    lv_obj_set_width(message, 220);
+    lv_obj_set_width(message, LV_PCT(100));
     lv_obj_set_height(message, LV_SIZE_CONTENT);
     lv_obj_align(message, sent ? LV_ALIGN_TOP_RIGHT : LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_set_style_bg_color(message, lv_color_hex(
@@ -103,7 +99,7 @@ static void add_row(const char *text, bool sent, message_view *view)
     lv_obj_t *label = falafel_theme_create_label(message, text, &lv_font_montserrat_14,
                                                   FALAFEL_COLOR_CREAM);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(label, 194);
+    lv_obj_set_width(label, LV_PCT(100));
     lv_obj_set_height(label, LV_SIZE_CONTENT);
     lv_obj_update_layout(label);
     int32_t height=lv_obj_get_height(label)+22;

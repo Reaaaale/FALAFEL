@@ -12,6 +12,7 @@
 #include "src/drivers/sdl/lv_sdl_mouse.h"
 #include "src/drivers/sdl/lv_sdl_window.h"
 #include "trackpad_navigation.h"
+#include "menu_button.h"
 #include "ui_smoke.h"
 
 static volatile sig_atomic_t interrupted;
@@ -116,7 +117,10 @@ static bool parse_u32(const char *text, uint32_t minimum, uint32_t maximum, uint
 }
 int main(int argc, char **argv)
 {
-    bool smoke = flag(argc, argv, "--ui-smoke-test");
+    bool navigation_test = flag(argc, argv, "--ui-navigation-test");
+    bool smoke = flag(argc, argv, "--ui-smoke-test") || navigation_test;
+    /* The original rotation smoke has reference coordinates for 466px;
+     * navigation has separate responsive tests at multiple diameters. */
     bool integration = flag(argc, argv, "--test-send-preset");
     const char *identity = argument(argc, argv, "--identity", NULL);
     const char *mailbox = argument(argc, argv, "--mailbox", NULL);
@@ -130,17 +134,19 @@ int main(int argc, char **argv)
         tls_cert && *tls_cert && strncmp(tls_cert,"--",2) &&
         tls_key && *tls_key && strncmp(tls_key,"--",2) &&
         tls_name && *tls_name && strncmp(tls_name,"--",2);
-    uint32_t own, peer, port = 7777, duration = 0, test_count=1;
-    if (!parse_u32(argument(argc, argv, "--device", getenv("FALAFEL_DEVICE_ID")), 1, UINT32_MAX - 1, &own) ||
+    uint32_t own, peer, port = 7777, duration = 0, test_count=1, display_size=466;
+    if (!parse_u32(argument(argc, argv, "--display-size", "466"), 320, 800, &display_size) ||
+        !parse_u32(argument(argc, argv, "--device", getenv("FALAFEL_DEVICE_ID")), 1, UINT32_MAX - 1, &own) ||
         !parse_u32(argument(argc, argv, "--peer", getenv("FALAFEL_PEER_ID")), 1, UINT32_MAX - 1, &peer) ||
         own == peer || !parse_u32(argument(argc, argv, "--port", "7777"), 1, 65535, &port) ||
         (argument(argc, argv, "--test-duration-ms", NULL) &&
          !parse_u32(argument(argc, argv, "--test-duration-ms", NULL), 1, 60000, &duration)) ||
         !parse_u32(argument(argc,argv,"--test-send-count","1"),1,1000,&test_count) ||
+        (flag(argc, argv, "--ui-smoke-test") && display_size != 466) ||
         (!smoke && (!identity || !mailbox)) || (smoke && integration) ||
         flag(argc, argv, "--data") || (tls_requested && !tls_complete)) {
         fprintf(stderr, "Usage: %s --device ID --peer ID --identity FILE --mailbox FILE "
-            "[--host HOST] [--port PORT] [--history DIR] [--init-history] [--tls-ca FILE --tls-cert FILE --tls-key FILE --tls-server-name NAME]\n--data legacy state is no longer supported.\n", argv[0]);
+            "[--display-size 320..800] [--host HOST] [--port PORT] [--history DIR] [--init-history] [--tls-ca FILE --tls-cert FILE --tls-key FILE --tls-server-name NAME]\n--data legacy state is no longer supported.\n", argv[0]);
         return EXIT_FAILURE;
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -157,19 +163,20 @@ int main(int argc, char **argv)
         if (!s.controller) return EXIT_FAILURE;
     }
     lv_init();
-    lv_display_t *display = lv_sdl_window_create(466, 466);
+    lv_display_t *display = lv_sdl_window_create((int32_t)display_size, (int32_t)display_size);
     if (!display) {
         messaging_request_stop(s.controller);
         /* No rendering loop exists on initialization failure. */
         while (!messaging_finished(s.controller)) SDL_Delay(1);
         messaging_destroy(s.controller); return EXIT_FAILURE;
     }
-    char title[80]; snprintf(title, sizeof(title), "Falafel E2EE %u -> %u", own, peer);
+    char title[80]; snprintf(title, sizeof(title), "Falafel E2EE %u -> %u | F2: Menu", own, peer);
     lv_sdl_window_set_title(display, title); lv_sdl_window_set_resizeable(display, false);
     lv_sdl_mouse_create(); SDL_Window *window = lv_sdl_window_get_window(display);
     uint32_t window_id = SDL_GetWindowID(window);
     SDL_SetEventFilter(exit_filter, &window_id);
     trackpad_navigation_init(window_id, false);
+    menu_button_init(window_id);
     falafel_gui_callbacks_t callbacks = {.on_send_message = gui_send, .on_personality_changed = gui_personality,
         .on_messages_opened = gui_messages, .user_data = &s};
     /* Personality changes stay local; no legacy event is transmitted. */
@@ -196,9 +203,11 @@ int main(int argc, char **argv)
                 if(falafel_gui_send_preset()) ++presets_sent;
             }
         }
-        uint32_t wait = lv_timer_handler(); trackpad_navigation_process();
+        uint32_t wait = lv_timer_handler();
+        menu_button_process();
+        trackpad_navigation_process();
         if (smoke && !stopping) {
-            int check = ui_smoke_step(display, window);
+            int check = navigation_test ? ui_navigation_step(display, window) : ui_smoke_step(display, window);
             if (check) { result = check > 0 ? EXIT_SUCCESS : EXIT_FAILURE; stopping = true; }
         }
         if (stopping) {
@@ -214,6 +223,7 @@ int main(int argc, char **argv)
         messaging_static_memory(),falafel_gui_message_cache_bytes(),memory.max_used);
     /* Worker already finished; no network/storage join blocks rendering. */
     messaging_destroy(s.controller);
+    menu_button_deinit();
     trackpad_navigation_deinit(); SDL_SetEventFilter(NULL, NULL);
     lv_deinit();
     return result;

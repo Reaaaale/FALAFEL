@@ -1,7 +1,7 @@
 # Desktop simulator
 
-The simulator uses pinned LVGL 9.4.0 and SDL2 on macOS, in a fixed **466 × 466**
-window. The screen uses dark sage `#34483E` with a circular, radius-clipped content container;
+The simulator uses pinned LVGL 9.4.0 and SDL2 on macOS, in a **466 × 466**
+window by default (`--display-size 320..800` selects a prototype diameter). The screen uses dark sage `#34483E` with a circular, radius-clipped content container;
 children cannot draw into the square window's outer corners. SDL still creates
 a rectangular window: the masked corners are sage, not desktop-transparent.
 Screen construction lives in `../shared/gui/`.
@@ -160,7 +160,7 @@ All supplied canvases are currently 466 × 466 RGBA8. The converter reads their
 actual dimensions and requires a common canvas across outfits, without fixing
 them to 466px. This is an asset/simulator size, **not a selected hardware display**;
 the circular device model and final display resolution remain undecided.
-The source canvases share one uniform scale into a 320 × 320 stage, with original
+At the default 466px diameter the source canvases share one uniform scale into a 320 × 320 stage, with original
 transparent margins and no per-outfit resizing or cropping. The common stage
 is centered 32px below the screen center (28px below the earlier layout), leaving
 the chef hat below the envelope and the Taxi car above the personality label.
@@ -201,8 +201,49 @@ Playback still completes while messages are open. Trackpad input is observed
 with `SDL_AddEventWatch`; LVGL still owns the SDL event loop. The watch reads
 an atomic busy/visibility snapshot published by the GUI thread, not LVGL objects.
 
-Click the envelope to open the real mailbox view, or “Torna a Falafel” to
-return. No demonstration message is inserted. The envelope uses toasted orange
+Press **F2** with the simulator window focused (Fn+F2 if your keyboard uses
+media keys) to simulate the ESP32-S3 physical menu button and open three entries: **Messaggi**, **Giochi** and
+**Impostazioni**. All pages use the existing sage/cream/orange palette and
+Montserrat fonts. The menu has a central column of three buttons and a “Home”
+back button; entry pages have a “Menu” back button. Click Messaggi or the existing
+envelope to open the real mailbox view: “Indietro” returns to the route used to
+enter (Menu or Home). Giochi and Impostazioni explicitly say that their contents
+are not yet available; there are no simulated games, settings or working-looking
+switches. Opening the menu alone does not mark messages read; entering Messaggi
+retains the existing local-read callback and unread behavior. Reopening the same
+active route is idempotent. There is no touch Menu button on Home. F2 opens
+Menu from any page, including during rotation; holding it does not repeat or
+toggle the menu. Internal entries and back controls remain touch-operated.
+The window title includes the F2 shortcut.
+
+`src/menu_button.c` observes SDL key edges for this window, rejects repeat/held
+events and clears held/pending state on focus loss. It latches atomics in the
+SDL watch and dispatches `falafel_gui_menu_button_pressed()` on the LVGL thread;
+it does not create another SDL event loop. The shared hook expects one debounced
+physical press on the GUI task. S3 GPIO selection, pull-up/polarity, debounce
+and task/ISR delivery are pending the final board and firmware GUI integration;
+no hardware button driver or physical validation is claimed.
+
+`shared/gui/falafel_navigation.c` supplies reusable page, button, back-navigation
+and entry-page primitives. `falafel_gui.c` owns the typed page router and one
+message-origin value; pages are built once and shown/hidden without an unbounded
+history stack. The legacy composer remains unexposed; its back action returns to
+Messages. Shared navigation uses C11/LVGL only, with no SDL/worker/storage calls.
+The circular root takes the smaller display dimension; new page geometry uses
+parent-relative percentages. Home retains reference framing at 466px and scales
+the common stage/offsets for other prototypes, anchoring the fixed-size envelope
+above the chef hat. Fonts and source assets are unchanged. Touch target sizing,
+font legibility, RAM/PSRAM and rendering on the final physical display still need
+hardware-specific validation; `--display-size` is not a hardware selection.
+
+Personality input is accepted only while Home is active. Menu and entry views
+do not register the Home gesture handlers; pointer releases on the envelope
+respect the consumed-swipe guard. The existing SDL wheel visibility/busy
+latch also blocks hidden-Home gestures and their inertial tails. A pending
+rotation can finish while another route is visible, preserving its callback and
+pose semantics.
+
+No demonstration message is inserted. The envelope uses toasted orange
 for persistent local unread messages, muted sage otherwise. “Invia: Sto arrivando” sends
 the preset; buttons and banners work during rotation. Personality changes are
 local/session-only; the original synchronized-state setter remains available
@@ -265,6 +306,36 @@ ctest --test-dir build/simulator --output-on-failure
 mkdir -p /tmp/falafel-ui
 FALAFEL_SCREENSHOTS=/tmp/falafel-ui ctest --test-dir build/simulator --output-on-failure
 ```
+
+The three additional CTests `circular_navigation_320`, `circular_navigation_466`
+and `circular_navigation_480` inject real SDL key/click/drag/wheel events. They
+check all menu entries and return paths, Home envelope compatibility, unread and
+callback timing, no personality change from hidden-Home input, a swipe across
+the former Home Menu position, pose continuity, and 100 repeated route cycles.
+They also check absence of the Home Menu target, F2 held/repeat/foreign-window
+rejection, focus-loss recovery, opening from Settings and during rotation. Every visible
+navigation button's full rectangle must fit the physical circle. Optional
+`FALAFEL_SCREENSHOTS` captures each entry page at all three diameters.
+
+```sh
+ctest --test-dir build/simulator -R '^circular_navigation' --repeat until-fail:3 --output-on-failure
+# Automatic visible navigation demo, no credentials/controller/network:
+env -u SDL_VIDEODRIVER build/simulator/falafel_simulator \
+  --device 41 --peer 42 --ui-navigation-test --display-size 466
+```
+
+2026-11-16 physical-button update: normal and ASan/UBSan builds compile and
+complete simulator suites pass **7/7 each**, including E2EE integrations. Normal
+navigation tests additionally pass three consecutive runs per diameter. No
+physical S3 run or firmware GUI build was performed.
+
+2026-11-16 navigation milestone: normal and ASan/UBSan builds compile; both full
+simulator suites pass **7/7**, retaining rotation and encrypted-history/controller/
+SDL integration regressions. Navigation passes three consecutive runs per size
+in each build. Host sanitized C6/simulator plus relay mTLS regressions pass 2/2.
+Snapshots at 320/466/480 were produced; Home/Menu/Messages/entry layouts were
+visually reviewed, including smaller-screen envelope/chef-hat clearance. No
+firmware, identity, protocol or transport changes and no physical S3 validation.
 
 `circular_gui_smoke` runs the actual simulator/LVGL renderer with SDL's dummy
 video driver under CTest, avoiding interference from physical desktop input.

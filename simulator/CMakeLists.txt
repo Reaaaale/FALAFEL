@@ -55,9 +55,12 @@ target_link_libraries(lvgl PUBLIC SDL2::SDL2)
 add_executable(falafel_simulator
     src/main.c
     src/trackpad_navigation.c
+    ../shared/gui/falafel_navigation.c
     ../shared/gui/falafel_gui.c
     "${FALAFEL_ROTATION_SOURCE}"
     src/ui_smoke.c
+    src/menu_button.c
+    src/ui_navigation.c
     ../shared/gui/falafel_theme.c
     ../shared/gui/falafel_status_bar.c
     ../shared/gui/falafel_home.c
@@ -95,6 +98,13 @@ enable_testing()
 add_test(NAME circular_gui_smoke COMMAND falafel_simulator --device 41 --peer 42
     --ui-smoke-test)
 set_tests_properties(circular_gui_smoke PROPERTIES TIMEOUT 40 ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+foreach(diameter 320 466 480)
+    add_test(NAME circular_navigation_${diameter} COMMAND falafel_simulator
+        --device 41 --peer 42 --ui-navigation-test --display-size ${diameter})
+    set_tests_properties(circular_navigation_${diameter} PROPERTIES
+        TIMEOUT 20 ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+endforeach()
+
 
 # Reuse the explicit fixture provisioner; the simulator never provisions keys.
 add_executable(falafel_mailbox_fixture ../experiments/desktop-mailbox/mailbox_peer.c)

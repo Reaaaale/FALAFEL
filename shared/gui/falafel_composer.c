@@ -1,7 +1,7 @@
 #include "falafel_gui_internal.h"
 
 static lv_obj_t *textarea, *keyboard;
-static void back_clicked(lv_event_t *event) { (void)event; falafel_gui_show_home(); }
+static void back_clicked(lv_event_t *event) { (void)event; falafel_gui_go_back(); }
 static void send_clicked(lv_event_t *event)
 {
     (void)event;

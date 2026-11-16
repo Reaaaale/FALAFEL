@@ -129,18 +129,21 @@ bool falafel_gui_is_personality_animating(void)
 
 bool falafel_gui_next_personality(void)
 {
+    if (!falafel_gui_is_home_active()) return false;
     if (falafel_gui.personality >= FALAFEL_PERSONALITY_REMINDER) return false;
     return select_personality((falafel_personality_t)(falafel_gui.personality + 1), -1);
 }
 
 bool falafel_gui_previous_personality(void)
 {
+    if (!falafel_gui_is_home_active()) return false;
     if (falafel_gui.personality <= FALAFEL_PERSONALITY_TAXI) return false;
     return select_personality((falafel_personality_t)(falafel_gui.personality - 1), 1);
 }
 
 static void home_pointer_event(lv_event_t *event)
 {
+    if (!falafel_gui_is_home_active()) return;
     lv_event_code_t code = lv_event_get_code(event);
     lv_indev_t *indev = lv_event_get_indev(event);
     if (indev == NULL || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
@@ -189,15 +192,18 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
 {
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_style_all(root);
-    lv_obj_set_size(root, 466, 466);
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
     art_stage = lv_obj_create(root);
     lv_obj_remove_style_all(art_stage);
-    lv_obj_set_size(art_stage, 320, 320);
+    lv_obj_update_layout(parent);
+    int32_t diameter = lv_obj_get_width(parent);
+    int32_t stage_size = diameter * 320 / 466;
+    lv_obj_set_size(art_stage, stage_size, stage_size);
     /* Shared framing leaves the chef hat below the envelope and the taxi
      * above the label, without resizing individual outfits. */
-    lv_obj_align(art_stage, LV_ALIGN_CENTER, 0, 32);
+    lv_obj_align(art_stage, LV_ALIGN_CENTER, 0, diameter * 32 / 466);
     lv_obj_clear_flag(art_stage, LV_OBJ_FLAG_SCROLLABLE);
     character_image = lv_image_create(art_stage);
     lv_obj_t *image = character_image;
@@ -205,17 +211,19 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
     displayed_outfit = falafel_gui.personality;
     const lv_image_dsc_t *asset = &falafel_asset_rotation[displayed_outfit][0];
     lv_image_set_src(image, asset);
-    /* LVGL scale unit is 256. Uniform fit in a 320px square, no cropping. */
+    /* LVGL scale unit is 256. Uniform fit in the shared stage, no cropping. */
     uint32_t edge = asset->header.w > asset->header.h
         ? asset->header.w : asset->header.h;
-    lv_image_set_scale(image, (uint32_t)(320u * 256u / edge));
+    lv_image_set_scale(image, (uint32_t)((uint32_t)stage_size * 256u / edge));
     lv_obj_center(image);
     lv_obj_add_event_cb(image, rotation_drawn, LV_EVENT_DRAW_POST, NULL);
 
     lv_obj_t *notification = lv_button_create(root);
     message_button = notification;
     lv_obj_set_size(notification, 44, 40);
-    lv_obj_align(notification, LV_ALIGN_TOP_MID, 0, 94);
+    /* Anchor the bottom edge: the fixed-size touch target must clear the
+     * scaled chef hat on smaller prototypes as well as the 466px reference. */
+    lv_obj_align(notification, LV_ALIGN_TOP_MID, 0, diameter * 134 / 466 - 40);
     falafel_theme_style_button(notification, FALAFEL_COLOR_ACCENT);
     lv_obj_set_style_radius(notification, 14, 0);
     lv_obj_set_style_border_width(notification, 0, 0);
@@ -226,12 +234,12 @@ lv_obj_t *falafel_home_create(lv_obj_t *parent)
 
     title_label = falafel_theme_create_label(root, "Taxi", &lv_font_montserrat_16,
                                               FALAFEL_COLOR_WHITE);
-    lv_obj_align(title_label, LV_ALIGN_BOTTOM_MID, 0, -76);
+    lv_obj_align(title_label, LV_ALIGN_BOTTOM_MID, 0, -diameter * 76 / 466);
     for (int i = 0; i < FALAFEL_PERSONALITY_COUNT; ++i) {
         markers[i] = lv_obj_create(root);
         lv_obj_remove_style_all(markers[i]);
         lv_obj_set_size(markers[i], 5, 5);
-        lv_obj_align(markers[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 14, -57);
+        lv_obj_align(markers[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 14, -diameter * 57 / 466);
         lv_obj_set_style_bg_opa(markers[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(markers[i], LV_RADIUS_CIRCLE, 0);
     }

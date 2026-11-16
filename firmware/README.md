@@ -35,6 +35,13 @@ and rollback commands](../docs/mtls.md). The commands were not executed on hardw
 The ECC correction is present in compiled/linked code; physical entropy and key
 protection remain unverified. SDK 5.5.2 and its existing builds are retained.
 
+The shared GUI exposes `falafel_gui_menu_button_pressed()` for a debounced
+physical menu press, invoked on the LVGL task after GUI creation, never from an
+ISR. The simulator maps F2 to this hook and Home has no touch Menu control.
+This firmware does not yet initialize LVGL or configure an S3 button GPIO.
+Select the final board/pin and implement polarity, pull-up, debounce and event
+delivery during S3 GUI integration; no physical button validation is claimed.
+
 ## Isolated installation
 
 These are the executed installation steps, from the repository root. Do not

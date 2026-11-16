@@ -4,6 +4,32 @@ Last updated: 2026-11-16
 
 ## Current status
 
+2026-11-16 — Latest GUI milestone: physical menu-button simulation. Removed the
+Home touch Menu control; F2 opens Menu from any route without toggling or
+autorepeat, including during animation. SDL input is latched atomically and
+delivered through the shared GUI-task hook. Verified: both simulator builds and
+full suites 7/7 normal + 7/7 ASan/UBSan; normal navigation repeats 3/size pass.
+Remaining: final S3 board/GPIO selection, electrical debounce and firmware GUI
+integration; no hardware run claimed. Next: identify the board/button pinout
+and deliver debounced GPIO events to the LVGL task.
+
+2026-11-16 — Main menu and navigation milestone implemented in shared C11/LVGL.
+The menu-button action (simulated with F2) opens Messaggi, Giochi and
+Impostazioni; Home has no touch Menu control. Explicit back controls
+return to the correct parent, including the Home envelope shortcut. Existing
+message history/read/send behavior remains operational; games/settings are
+honest entry placeholders without implemented controls. Shared page primitives
+and a typed, bounded router build views once; no SDL/controller dependencies in
+the shared layer. Parent-relative circular layout is tested at 320/466/480px;
+466px remains the default simulator size, not a hardware decision. Existing
+palette/fonts/assets and all three personality/swipe animations are retained.
+GUI/simulator build tests pass 7/7 normal and ASan/UBSan; navigation is repeated
+three times per diameter in each build; host sanitized C6/simulator and mTLS
+regressions pass 2/2. No firmware/E2EE/TLS/relay changes. Remaining: implement
+actual games/settings after defining behavior; final touch-target/display/S3
+memory/performance validation is pending. Next development step is the next GUI
+content milestone before hardware integration.
+
 2026-11-16 — Latest completed test milestone: mTLS regression portability fixes.
 Implemented: explicit/preflighted C probe selection with a standalone default,
 registration synchronization for the single pending slot, and strict fatal-alert
@@ -193,7 +219,7 @@ E2EE path in a dedicated worker;
 its application history now commits before consume, then archives replay
 IDs and exact receipts before reusing active slots.
 
-The first circular simulator UI is implemented: fixed 466 × 466 SDL2/LVGL 9.4
+The first circular simulator UI is implemented: default 466 × 466 SDL2/LVGL 9.4
 window, three Blender outfits embedded at build time, clipped circular dark-sage viewport,
 mouse/trackpad personality selection with 24-frame prerendered rotation, and
 real mailbox navigation and preset E2EE sending. The controller changes no
@@ -481,6 +507,12 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
+Current priority: complete the GUI before resuming hardware development. Main
+menu/navigation is complete; next define and implement real games/settings
+content and continue circular-layout/interaction verification. Existing hardware,
+security and mTLS acceptance work below remains pending for the later hardware
+phase; no production-identity approval is implied.
+
 Visually review outfit switching with the physical trackpad; after selecting the
 circular display hardware, validate framing and PNG decoding/memory on that target.
 
@@ -502,6 +534,15 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-16 — Physical menu-button action and F2 SDL simulation completed; normal
+and ASan/UBSan simulator suites pass 7/7 each, normal navigation repeated three
+times at 320/466/480px. S3 GPIO/debounce and firmware GUI integration remain
+planned, with no physical button validation.
+
+2026-11-16 — Main menu, reusable circular entry pages and explicit navigation;
+normal/sanitized simulator verification complete. Games/settings content and
+physical display acceptance remain pending.
 
 2026-11-16 — Outfit switching at the rear pose with 72 Blender sprites, unchanged
 swipe semantics and completed simulator software verification/documentation.

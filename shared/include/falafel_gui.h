@@ -14,6 +14,25 @@ typedef enum {
     FALAFEL_PERSONALITY_COUNT
 } falafel_personality_t;
 
+/** Navigation is GUI-local; it never changes application/transport state. */
+typedef enum {
+    FALAFEL_PAGE_HOME = 0,
+    FALAFEL_PAGE_MENU,
+    FALAFEL_PAGE_MESSAGES,
+    FALAFEL_PAGE_GAMES,
+    FALAFEL_PAGE_SETTINGS,
+    FALAFEL_PAGE_COMPOSER,
+    FALAFEL_PAGE_COUNT
+} falafel_gui_page_t;
+
+/** One debounced physical press. Call on the LVGL task after GUI creation,
+ * never from a GPIO ISR. Opens Menu from any page; repeated presses are inert. */
+void falafel_gui_menu_button_pressed(void);
+void falafel_gui_open_menu(void);
+void falafel_gui_navigate(falafel_gui_page_t page);
+void falafel_gui_go_back(void);
+falafel_gui_page_t falafel_gui_current_page(void);
+
 typedef struct {
     /** True accepts a volatile send request only; persistence is asynchronous. */
     bool (*on_send_message)(const char *text, void *user_data);

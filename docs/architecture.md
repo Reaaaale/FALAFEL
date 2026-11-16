@@ -4,6 +4,23 @@ Last updated: 2026-11-16
 
 ## Current status
 
+2026-11-16 — Main menu and navigation milestone implemented in shared C11/LVGL.
+The menu-button action (simulated with F2) opens Messaggi, Giochi and
+Impostazioni; Home has no touch Menu control. Explicit back controls
+return to the correct parent, including the Home envelope shortcut. Existing
+message history/read/send behavior remains operational; games/settings are
+honest entry placeholders without implemented controls. Shared page primitives
+and a typed, bounded router build views once; no SDL/controller dependencies in
+the shared layer. Parent-relative circular layout is tested at 320/466/480px;
+466px remains the default simulator size, not a hardware decision. Existing
+palette/fonts/assets and all three personality/swipe animations are retained.
+GUI/simulator build tests pass 7/7 normal and ASan/UBSan; navigation is repeated
+three times per diameter in each build; host sanitized C6/simulator and mTLS
+regressions pass 2/2. No firmware/E2EE/TLS/relay changes. Remaining: implement
+actual games/settings after defining behavior; final touch-target/display/S3
+memory/performance validation is pending. Next development step is the next GUI
+content milestone before hardware integration.
+
 2026-11-16 — Three Blender outfits integrated into the existing GUI timer.
 The 72 PNGs are embedded by personality/angle; source outfit switches to the
 selected outfit at rear frame 12, without changing the index or committing
@@ -166,7 +183,7 @@ E2EE path in a dedicated worker;
 its application history now commits before consume, then archives replay
 IDs and exact receipts before reusing active slots.
 
-The first circular simulator UI is implemented: fixed 466 × 466 SDL2/LVGL 9.4
+The first circular simulator UI is implemented: default 466 × 466 SDL2/LVGL 9.4
 window, three Blender outfits embedded at build time, clipped circular dark-sage viewport,
 mouse/trackpad personality selection with 24-frame prerendered rotation, and
 real mailbox navigation and preset E2EE sending. The controller changes no
@@ -448,6 +465,12 @@ receive effects before consume; replay archive persists before active-slot reuse
 
 ## Next recommended development step
 
+Current priority: complete the GUI before resuming hardware development. Main
+menu/navigation is complete; next define and implement real games/settings
+content and continue circular-layout/interaction verification. Existing hardware,
+security and mTLS acceptance work below remains pending for the later hardware
+phase; no production-identity approval is implied.
+
 Visually review outfit switching with the physical trackpad; after selecting the
 circular display hardware, validate framing and PNG decoding/memory on that target.
 
@@ -469,6 +492,15 @@ Then integrate protected identity/task/network adapters and validate S3,
 stack/PSRAM, real capacity and endurance.
 
 ## Last completed milestone
+
+2026-11-16 — Physical menu-button action and F2 SDL simulation completed; normal
+and ASan/UBSan simulator suites pass 7/7 each, normal navigation repeated three
+times at 320/466/480px. S3 GPIO/debounce and firmware GUI integration remain
+planned, with no physical button validation.
+
+2026-11-16 — Main menu, reusable circular entry pages and explicit navigation;
+normal/sanitized simulator verification complete. Games/settings content and
+physical display acceptance remain pending.
 
 2026-11-16 — Outfit switching at the rear pose with 72 Blender sprites, unchanged
 swipe semantics and completed simulator software verification/documentation.
@@ -536,7 +568,35 @@ integration and S3 PSRAM/stack/endurance tests. See embedded-storage.md and
 application-persistence.md.
 
 
-The initial circular simulator UI hosts LVGL 9.4 in a fixed 466 × 466 SDL2 window.
+The circular simulator UI hosts LVGL 9.4 in a default 466 × 466 SDL2 window;
+`--display-size 320..800` supports prototype layout checks. The shared root uses
+the smaller display dimension; menu/entry layout is relative to that diameter.
+The router in `falafel_gui.c` shows exactly one eagerly-built page. Message-origin
+tracking preserves both envelope → Messages → Home and Menu → Messages → Menu;
+Giochi/Impostazioni return to Menu, Menu returns to Home. Navigation primitives
+live in `falafel_navigation.c`; routes do not call transport or persistence.
+Home has no touch Menu control. The platform adapter calls
+`falafel_gui_menu_button_pressed()` on the LVGL task for each debounced physical
+press; it opens Menu idempotently from any page. SDL `menu_button.c` maps F2 to
+that hook via atomic held/pending state, suppresses repeat/duplicate presses,
+filters window IDs and resets on focus loss. Its event watch never touches
+LVGL. The S3 GPIO/debounce/ISR-to-task adapter is planned, pending board
+selection and firmware GUI integration.
+Only entering Messages triggers the existing local-read callback, after the
+page is visible. Home swipe input is isolated by visibility and consumption.
+
+```mermaid
+flowchart LR
+    Home -->|physical button / SDL F2| Menu
+    Menu -->|back| Home
+    Home <-->|envelope / back| Messaggi
+    Menu <--> Messaggi
+    Menu <--> Giochi["Giochi: entry only"]
+    Menu <--> Impostazioni["Impostazioni: entry only"]
+```
+
+The legacy composer is not linked from the menu; no game/settings behavior or
+S3 hardware support is claimed by these entry pages.
 Its dark-sage (`#34483E`) screen contains a circular clipped content root shared by home and
 message views. Build-generated descriptors embed
 `simulator/assets/falafel_sprites/falafel_sprites/{taxi,cuoco,promemoria}/frame_00..23.png`.

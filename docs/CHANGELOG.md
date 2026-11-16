@@ -1,5 +1,57 @@
 # Falafel development changelog
 
+## 2026-11-16 — Physical menu-button simulation
+
+- Removed the Home touch Menu control. Shared GUI adds the GUI-task-only
+  `falafel_gui_menu_button_pressed()` hook: one debounced physical press opens
+  Menu from any page, idempotently, including during rotation. Internal menu
+  choices, back controls and envelope remain touch-operated.
+- Added SDL F2 adapter and window-title shortcut. An event watch latches atomic
+  input without calling LVGL; main-loop delivery suppresses held/repeat events,
+  ignores other windows and resets on focus loss. No GPIO assumptions or
+  firmware driver: S3 board/button wiring and GUI integration remain pending.
+- Expanded real SDL navigation tests at 320/466/480px for absent Home Menu, F2
+  press/repeat/held/window/focus behavior and access during rotation/from Settings.
+  Existing routes, unread/callback/pose and 100-cycle checks remain.
+- Verification: normal and ASan/UBSan builds compile; full simulator suites
+  7/7 each pass, including encrypted history/controller/E2EE regressions. Normal
+  navigation passes three consecutive runs per size. No sanitizer diagnostics;
+  existing vendor CMake/link warnings persist. `git diff --check` passes.
+- Reviewed documentation; updated root/simulator/firmware guides, architecture,
+  project status and changelog. No hardware run, firmware GUI build or commit.
+  Next: board/pin selection and debounced GPIO delivery on the S3 LVGL task.
+
+## 2026-11-16 — Main menu and circular navigation
+
+- Added shared `falafel_navigation.c` page/button/back/entry components and typed
+  GUI-local routes. Home now opens Menu → Messaggi/Giochi/Impostazioni; back
+  returns to the originating Home/Menu route. Existing message history/preset
+  stays functional, while games/settings have explicit unavailable copy.
+  The legacy unexposed composer returns to Messages.
+- Retained exact palette, Montserrat fonts, assets, three personalities and
+  rotation timing/pose/outfit rules. Home Menu clicks obey swipe consumption;
+  personality APIs/pointer handling reject hidden-Home input. Existing SDL
+  visibility/busy/inertia handling remains unchanged. Message-open callbacks
+  run once after the route is visible; entering Menu does not clear unread.
+- Circular content uses the smaller display dimension; new shared pages use
+  relative geometry. Reference Home framing is retained at 466px and the common
+  stage scales for prototypes, with envelope bottom anchored above the chef hat.
+  Message geometry adapts without changing worker/storage/protocol behavior.
+- Simulator adds `--display-size 320..800`, GUI-only `--ui-navigation-test`, and
+  three real SDL navigation CTests (320/466/480). They cover entries/back paths,
+  unread/callback/pose preservation, hidden-Home input, swipe over Menu, complete
+  hit-target containment within the circle, and 100 repeated route cycles.
+- Verification: normal and ASan/UBSan builds pass; complete simulator suites
+  7/7 each; navigation repeated three times/size/build passes; sanitized host
+  C6/simulator and relay mTLS regression tests 2/2 pass. Existing 24-frame rotation
+  checks remain enabled. Inspected snapshots at reference and smaller sizes.
+  `git diff --check` passes. Existing vendor CMake deprecation/duplicate-library
+  warnings remain; no sanitizer diagnostics.
+- Reviewed project documentation; updated root/simulator guides, architecture,
+  PROJECT_STATUS and changelog. No firmware, E2EE/TLS/relay, identity or asset
+  modifications, commit, push or hardware operations. Next: real games/settings
+  content; final display touch targets and S3 memory/performance remain unverified.
+
 ## 2026-11-16 — mTLS test portability and synchronization
 
 - Modified `test/test_relay_tls.py` and root CMake/CTest registration. Resolve the

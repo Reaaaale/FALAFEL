@@ -35,7 +35,13 @@ mTLS suite alone. Other build trees require `--probe PATH`; see
 
 The test suite includes relay fault injection and a headless C
 application→transport→relay→transport→application integration test. The simulator
-has SDL input/rendering, controller and two-window E2EE integration tests; see `simulator/README.md`.
+has SDL input/rendering, controller and two-window E2EE integration tests.
+A physical-menu-button action (F2 in the simulator) opens Messaggi, Giochi and
+Impostazioni, with explicit back paths and isolated Home swipes. Home has no
+touch Menu button; the S3 GPIO adapter remains pending.
+Messaggi retains its working history; the other
+two entries clearly show their pending status. Navigation is tested at three
+prototype diameters; see [simulator navigation and tests](simulator/README.md).
 
 ## Cryptographic foundation
 
