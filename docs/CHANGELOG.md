@@ -1,5 +1,34 @@
 # Falafel development changelog
 
+## 2026-11-16 — mTLS test portability and synchronization
+
+- Modified `test/test_relay_tls.py` and root CMake/CTest registration. Resolve the
+  real C probe via `--probe`, compatible positional path, `FALAFEL_TLS_PROBE`, or
+  `build/tests/tls_client_probe`; validate executable availability before tests
+  and retain unittest options/selectors. Missing probes fail with build guidance.
+- Reproduced the standalone macOS/Python 3.14.6 one failure/four errors caused by
+  `PROBE=None`. The pending-slot test raced server consumption of HELLO2 after
+  client-side TLS completion; wait for durable frame publication instead of a
+  fixed sleep, then verify replay and bidirectional routing. Do not retry rejected
+  connections or raise handshake timeouts to hide the race.
+- Read plaintext rejection through EOF/reset. Permit only a complete fatal TLS
+  alert, reject other bytes/partial records/open connections, and check no cache
+  creation followed by healthy authenticated routing. Add a malformed-handshake
+  fixture to cover the alert path across OpenSSL behaviors.
+- Verification: both host builds compile; normal CTest 19/19 and ASan/UBSan CTest
+  20/20 pass, including configured C6/simulator integration. Ten consecutive
+  17-case mTLS suite runs pass in each build, with no sanitizer reports. Probe default,
+  explicit, positional, environment, missing and non-executable cases pass.
+  Python compilation and `git diff --check` pass; added-diff key/token scan finds
+  no private keys or common credential signatures. Ubuntu/Python 3.14 CI still
+  needs execution; no Ubuntu run or physical mTLS acceptance is claimed.
+- Architectural decision: correct test assumptions; retain production certificate
+  verification, pending/total limits and all mTLS protections without changes.
+  No GUI, sprites, firmware or E2EE identity changes, commit or push.
+- Reviewed project documentation and updated root/relay guides, `docs/mtls.md`,
+  this changelog and PROJECT_STATUS. Existing architecture/protocol diagrams and
+  hardware roadmap remain applicable.
+
 ## 2026-11-16 — Outfit switching at the rear pose
 
 - Integrated the 72 supplied PNGs at

@@ -121,7 +121,48 @@ ctest --test-dir build/mtls-host-san --output-on-failure
 ctest --test-dir build/mtls-simulator-san --output-on-failure
 ```
 
-Executed results in the existing isolated build trees:
+Standalone execution uses the same C verifiers as CTest:
+
+```sh
+# After the build above, select its exact executable (including sanitizer choice).
+python3 test/test_relay_tls.py --probe build/mtls-host/tls_client_probe -v
+ctest --test-dir build/mtls-host -R '^relay_mtls$' --repeat until-fail:10 --output-on-failure
+ctest --test-dir build/mtls-host-san -R '^relay_mtls$' --repeat until-fail:10 --output-on-failure
+```
+
+Without `--probe`, `FALAFEL_TLS_PROBE` selects the executable; otherwise the
+repository-relative default is `build/tests/tls_client_probe`, matching the root
+README build. Build that target before `python3 test/test_relay_tls.py -v`.
+The original first positional probe path remains supported. Invalid/missing or
+non-executable paths fail immediately with build instructions; no C checks are
+skipped and no executable is chosen by recursively searching old build trees.
+CTest passes its own `$<TARGET_FILE:tls_client_probe>` through `--probe`.
+
+2026-11-16 regression correction: client-side TLS completion plus `sendall(HELLO2)`
+does not prove server-side registration. With one pending slot, a second client
+can correctly be rejected until HELLO2 is consumed. The test now sends a frame
+and waits for its atomic durable cache publication before connecting the second
+client, then verifies replay and reverse traffic. The 0.4-second test deadline
+and all production limits remain unchanged; the initial fixed sleep is removed.
+Plaintext/malformed-handshake rejection reads through EOF/reset, permitting only
+a complete seven-byte fatal TLS alert record (type/version/length/level checked).
+It rejects partial alerts, application data and connections left open, checks
+that no cache was created, and verifies subsequent authenticated routing.
+The malformed-handshake fixture also exercises alert handling independently of
+whether the local OpenSSL sends an alert for plaintext HELLO2.
+
+Regression verification on macOS/Python 3.14.6: normal host build `build/tests`
+passes 19/19 CTests; ASan/UBSan `build/sec002/host-san` passes 20/20, including its
+configured C6/simulator integration. Ten consecutive full 17-case mTLS runs pass
+in each build (20/20 suite runs total), with no sanitizer reports. Probe
+resolution was separately checked for
+default, explicit, legacy positional and environment selection, plus missing and
+non-executable paths. The original standalone failure (one failure/four errors)
+was reproduced before correction. Ubuntu/Python 3.14 was not run locally; its
+reported EOF/alert failures are addressed by these test corrections and still
+require a GitHub Actions run. No production TLS/relay code changed.
+
+Historical 2026-11-12 results in the existing isolated build trees:
 
 | Check | Actual result |
 |---|---|

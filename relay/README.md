@@ -128,7 +128,14 @@ and should also be enabled. Default limits are 10 seconds for TLS/HELLO, 64 tota
 connections, 16 unregistered; each is configurable. Existing cache/output bounds
 remain in force. Reconnect authorization precedes old-session replacement.
 
-The new automated check is CTest `relay_mtls` (17 cases plus actual C verifiers);
+The automated check is CTest `relay_mtls` (17 cases plus actual C verifiers).
+Standalone execution uses `build/tests/tls_client_probe` by default, or an explicit
+`--probe PATH` / `FALAFEL_TLS_PROBE`. A missing/non-executable probe fails before
+starting the suite; C verification is never skipped. Pending-limit recovery waits
+for persisted registration evidence; plaintext rejection requires closure/reset,
+allowing only a complete fatal TLS alert before closure. No relay timeout, limit
+or certificate validation was relaxed.
+
 `c6_simulator_e2ee` also runs genuine E2EE over mTLS. See [software results and
 exact sidecar deployment commands](../docs/mtls.md). No service was deployed.
 

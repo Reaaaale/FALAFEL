@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Temporary laboratory PKI, real SSL sockets and actual C client verifiers."""
+import argparse
 import hashlib
 import json
 import os
@@ -22,7 +23,31 @@ from generate_tls_credentials import generate
 from relay.falafel_relay import Relay, Client
 from relay.tls_auth import load_devices
 
-PROBE = sys.argv.pop(1) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else None
+PROBE = None
+
+
+def resolve_probe(argv):
+    """Keep unittest arguments intact; never silently omit the real C checks."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--probe", help="path to the CMake tls_client_probe executable")
+    options, remaining = parser.parse_known_args(argv)
+    # Preserve the original CTest/standalone positional-path interface.
+    legacy = None
+    if remaining and not remaining[0].startswith("-") and (
+            "/" in remaining[0] or Path(remaining[0]).name == "tls_client_probe"):
+        legacy = remaining.pop(0)
+    if options.probe and legacy:
+        parser.error("specify the probe only once")
+    selected = options.probe or legacy or os.environ.get("FALAFEL_TLS_PROBE")
+    probe = Path(selected).expanduser() if selected else REPO / "build/tests/tls_client_probe"
+    if not probe.is_file() or not os.access(probe, os.X_OK):
+        parser.error(f"C client probe is missing or not executable: {probe}. "
+                     "Build it with 'cmake -S . -B build/tests' and "
+                     "'cmake --build build/tests --target tls_client_probe', "
+                     "or use --probe PATH / FALAFEL_TLS_PROBE for another build tree.")
+    return str(probe.resolve()), remaining
+
+
 HEADER = struct.Struct(">2sBBII16sH")
 
 
@@ -186,16 +211,26 @@ class MTLS(unittest.TestCase):
         self.start_relay("--handshake-timeout", "0.4", "--max-pending-connections", "1")
         stalled = socket.create_connection(("127.0.0.1", self.port), timeout=2)
         self.addCleanup(stalled.close)
-        time.sleep(0.05)  # let first raw TCP occupy the sole pending slot
+        # The listener accepts these sequential TCP connects in backlog order.
         extra = socket.create_connection(("127.0.0.1", self.port), timeout=2)
         self.addCleanup(extra.close)
         self.assertEqual(extra.recv(1), b"")
         self.assertEqual(stalled.recv(1), b"")
         first = self.connect()
-        second = self.connect("simulator", 2, 1)
         wire = frame(number=55)
         first.sendall(wire)
+        # TLS completion/sendall is not a server-side HELLO2 acknowledgement.
+        # A persisted frame proves registration released the sole pending slot.
+        deadline = time.monotonic() + first.gettimeout()
+        while not self.state.exists():
+            self.assertLess(time.monotonic(), deadline, "first client was not registered")
+            time.sleep(0.005)
+        self.assertEqual(len(json.loads(self.state.read_text())["pending"]), 1)
+        second = self.connect("simulator", 2, 1)
         self.assertEqual(exact(second, len(wire)), wire)
+        reverse = frame(2, 1, 55)
+        second.sendall(reverse)
+        self.assertEqual(exact(first, len(reverse)), reverse)
 
     def test_authenticated_connection_without_hello_times_out(self):
         self.start_relay("--handshake-timeout", "0.4")
@@ -221,13 +256,38 @@ class MTLS(unittest.TestCase):
         self.assertEqual(exact(first, len(reverse)), reverse)
 
     def test_plaintext_not_accepted_and_incomplete_config_fails(self):
-        raw = socket.create_connection(("127.0.0.1", self.port), timeout=2)
-        self.addCleanup(raw.close)
-        raw.sendall(b"HELLO2 1 2\n")
-        try:
-            self.assertEqual(raw.recv(1), b"")
-        except ConnectionResetError:
-            pass
+        # Exercise both plaintext rejection and the fatal-alert path even on
+        # OpenSSL builds that close HELLO2 without sending any TLS record.
+        for payload in (b"HELLO2 1 2\n", b"\x16\x03\x03\x00\x04\xff\x00\x00\x00"):
+            with self.subTest(payload=payload):
+                raw = socket.create_connection(("127.0.0.1", self.port), timeout=2)
+                self.addCleanup(raw.close)
+                raw.sendall(payload)
+                response = bytearray()
+                try:
+                    while True:
+                        chunk = raw.recv(4096)
+                        if not chunk:
+                            break
+                        response.extend(chunk)
+                        self.assertLessEqual(len(response), 7, "unexpected plaintext/TLS response")
+                except ConnectionResetError:
+                    pass
+                if response:
+                    # Some OpenSSL versions send a fatal TLS alert before closing.
+                    # Require a complete alert record, never arbitrary response bytes.
+                    self.assertEqual(len(response), 7)
+                    self.assertEqual(response[:2], b"\x15\x03")
+                    self.assertIn(response[2], (0, 1, 2, 3))
+                    self.assertEqual(response[3:6], b"\x00\x02\x02")
+        self.assertIsNone(self.relay.poll())
+        self.assertFalse(self.state.exists(), "plaintext client created relay state")
+        # A subsequent authenticated pair must still work normally.
+        first = self.connect()
+        second = self.connect("simulator", 2, 1)
+        wire = frame(number=58)
+        first.sendall(wire)
+        self.assertEqual(exact(second, len(wire)), wire)
         for options in (["--tls-ca", str(self.pki / "ca.pem")], ["--tls-ca", ""],
                 ["--tls-ca", "", "--tls-cert", "", "--tls-key", "", "--tls-devices", ""]):
             process = subprocess.run([sys.executable, str(REPO / "relay/falafel_relay.py"),
@@ -236,7 +296,6 @@ class MTLS(unittest.TestCase):
             self.assertIn(b"no TCP fallback", process.stderr)
 
     def test_actual_c_client_verification_and_no_fallback(self):
-        self.assertIsNotNone(PROBE)
         for mode in ("c6", "desktop"):
             for name, ca, success in (("falafel-relay.lab", self.pki / "ca.pem", True),
                     ("127.0.0.1", self.pki / "ca.pem", True),
@@ -334,4 +393,5 @@ class TLSWantIO(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    PROBE, arguments = resolve_probe(sys.argv[1:])
+    unittest.main(argv=[sys.argv[0], *arguments])

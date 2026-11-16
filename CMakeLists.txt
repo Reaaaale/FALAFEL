@@ -340,6 +340,6 @@ if(UNIX)
         target_compile_options(tls_client_probe PRIVATE ${FALAFEL_SANITIZER_FLAGS})
     endif()
     add_test(NAME relay_mtls COMMAND ${Python3_EXECUTABLE}
-        ${CMAKE_SOURCE_DIR}/test/test_relay_tls.py $<TARGET_FILE:tls_client_probe>)
+        ${CMAKE_SOURCE_DIR}/test/test_relay_tls.py --probe $<TARGET_FILE:tls_client_probe>)
     set_tests_properties(relay_mtls PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 90)
 endif()

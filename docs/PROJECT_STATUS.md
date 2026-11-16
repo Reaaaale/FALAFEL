@@ -4,6 +4,21 @@ Last updated: 2026-11-16
 
 ## Current status
 
+2026-11-16 — Latest completed test milestone: mTLS regression portability fixes.
+Implemented: explicit/preflighted C probe selection with a standalone default,
+registration synchronization for the single pending slot, and strict fatal-alert
+handling for rejected plaintext/malformed handshakes. Architecture is unchanged:
+nonblocking Python mTLS listener plus actual host C transport verifiers, trusted
+certificates and fingerprint-to-routing-ID authorization. No production relay,
+GUI, assets, firmware or E2EE identity changes. Verified: normal host CTest 19/19;
+ASan/UBSan host CTest 20/20 including configured C6/simulator integration; ten
+consecutive full mTLS runs in each build, no sanitizer reports; probe selection/
+error cases. The macOS/Python 3.14.6 PROBE failure was reproduced.
+Remaining verification: Ubuntu/Python 3.14 GitHub Actions; physical mTLS acceptance
+and the existing hardware/security limitations below remain pending. Next: review
+and push explicitly, then confirm all CI jobs before hardware acceptance. See
+[reproduction and failure analysis](mtls.md#local-software-reproduction).
+
 2026-11-16 — Three Blender outfits integrated into the existing GUI timer.
 The 72 PNGs are embedded by personality/angle; source outfit switches to the
 selected outfit at rear frame 12, without changing the index or committing

@@ -29,6 +29,10 @@ tests need CMake, a C11 compiler, and Python 3 for relay integration.
 The crypto target downloads the pinned official Mbed TLS 3.6.7 release archive
 and verifies its SHA-256 hash.
 
+After building `build/tests`, run `python3 test/test_relay_tls.py -v` for the
+mTLS suite alone. Other build trees require `--probe PATH`; see
+[probe selection and repeated mTLS checks](docs/mtls.md#local-software-reproduction).
+
 The test suite includes relay fault injection and a headless C
 application→transport→relay→transport→application integration test. The simulator
 has SDL input/rendering, controller and two-window E2EE integration tests; see `simulator/README.md`.
